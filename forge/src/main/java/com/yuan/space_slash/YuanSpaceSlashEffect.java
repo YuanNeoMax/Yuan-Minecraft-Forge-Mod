@@ -125,10 +125,8 @@ public final class YuanSpaceSlashEffect {
     private void initOrientation(Camera camera) {
         Vector3f look = camera.getLookVector();
         Vector3f up = camera.getUpVector();
-        Vector3f right = new Vector3f(look).cross(up, new Vector3f()).normalize();
-        if (right.lengthSquared() < 1.0e-6f) {
-            right = new Vector3f(1.0f, 0.0f, 0.0f);
-        }
+        Vector3f right = normalizeOrElse(new Vector3f(look).cross(up, new Vector3f()),
+                new Vector3f(1.0f, 0.0f, 0.0f));
 
         Vector3f attack = direction(yaw, pitch).toVector3f();
         Vector3f axis = screenProjection(attack, right, up);
@@ -141,14 +139,19 @@ public final class YuanSpaceSlashEffect {
         }
         axis.normalize();
         this.longAxis = axis;
-        this.side = new Vector3f(axis).cross(look, new Vector3f()).normalize();
-        if (this.side.lengthSquared() < 1.0e-6f) {
-            this.side = new Vector3f(up).normalize();
+        this.side = normalizeOrElse(new Vector3f(axis).cross(look, new Vector3f()), up);
+        this.thick = normalizeOrElse(new Vector3f(axis).cross(this.side, new Vector3f()), look);
+    }
+
+    /**
+     * Normalizes only when the vector is not degenerate. A zero-length cross product normalizes to
+     * NaN, and every NaN comparison is false, so a check placed after normalize() can never fire.
+     */
+    public static Vector3f normalizeOrElse(Vector3f vector, Vector3f fallback) {
+        if (vector.lengthSquared() < 1.0e-6f) {
+            return new Vector3f(fallback).normalize();
         }
-        this.thick = new Vector3f(axis).cross(this.side, new Vector3f()).normalize();
-        if (this.thick.lengthSquared() < 1.0e-6f) {
-            this.thick = new Vector3f(look).normalize();
-        }
+        return vector.normalize();
     }
 
     public static Vector3f screenProjection(Vector3f attack, Vector3f right, Vector3f up) {

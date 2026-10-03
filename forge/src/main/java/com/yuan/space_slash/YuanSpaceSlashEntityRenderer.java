@@ -77,10 +77,8 @@ public class YuanSpaceSlashEntityRenderer extends EntityRenderer<YuanSpaceSlashE
         Camera camera = Minecraft.getInstance().gameRenderer.getMainCamera();
         Vector3f look = camera.getLookVector();
         Vector3f up = camera.getUpVector();
-        Vector3f right = new Vector3f(look).cross(up, new Vector3f()).normalize();
-        if (right.lengthSquared() < 1.0e-6f) {
-            right = new Vector3f(1.0f, 0.0f, 0.0f);
-        }
+        Vector3f right = YuanSpaceSlashEffect.normalizeOrElse(new Vector3f(look).cross(up, new Vector3f()),
+                new Vector3f(1.0f, 0.0f, 0.0f));
 
         Vector3f attack = YuanSpaceSlashEffect.direction(entity.getYaw(), entity.getPitch()).toVector3f();
         Vector3f axis = YuanSpaceSlashEffect.screenProjection(attack, right, up);
@@ -93,14 +91,8 @@ public class YuanSpaceSlashEntityRenderer extends EntityRenderer<YuanSpaceSlashE
         }
         axis.normalize();
 
-        Vector3f side = new Vector3f(axis).cross(look, new Vector3f()).normalize();
-        if (side.lengthSquared() < 1.0e-6f) {
-            side = new Vector3f(up).normalize();
-        }
-        Vector3f thick = new Vector3f(axis).cross(side, new Vector3f()).normalize();
-        if (thick.lengthSquared() < 1.0e-6f) {
-            thick = new Vector3f(look).normalize();
-        }
+        Vector3f side = YuanSpaceSlashEffect.normalizeOrElse(new Vector3f(axis).cross(look, new Vector3f()), up);
+        Vector3f thick = YuanSpaceSlashEffect.normalizeOrElse(new Vector3f(axis).cross(side, new Vector3f()), look);
         return new Vector3f[]{axis, side, thick};
     }
 }

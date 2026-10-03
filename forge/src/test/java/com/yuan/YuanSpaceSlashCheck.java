@@ -1,7 +1,9 @@
 package com.yuan;
 
+import com.yuan.space_slash.YuanSpaceSlashEffect;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.joml.Vector3f;
 
 public final class YuanSpaceSlashCheck {
     public static void main(String[] args) throws Exception {
@@ -76,6 +78,22 @@ public final class YuanSpaceSlashCheck {
                 : "space slash must project onto the camera plane and never collapse to an edge-on line";
         assert effect.contains("initOrientation") && effect.contains("longAxis == null")
                 : "space slash orientation must be captured once and not follow the camera every frame";
+        String entityRenderer = Files.readString(Path.of("src/main/java/com/yuan/space_slash/YuanSpaceSlashEntityRenderer.java"));
+        assert effect.contains("normalizeOrElse(") && entityRenderer.contains("normalizeOrElse(")
+                : "both orientation copies must guard degeneracy before normalizing";
+        assert !effect.contains("this.side.lengthSquared()") && !effect.contains("this.thick.lengthSquared()")
+                && !entityRenderer.contains("side.lengthSquared() <") && !entityRenderer.contains("thick.lengthSquared() <")
+                : "a length check placed after normalize() can never fire, because NaN compares false";
+        Vector3f fallback = new Vector3f(0.0f, 1.0f, 0.0f);
+        Vector3f degenerate = YuanSpaceSlashEffect.normalizeOrElse(new Vector3f(), fallback);
+        assert Float.isFinite(degenerate.x()) && Float.isFinite(degenerate.y())
+                && Float.isFinite(degenerate.z())
+                : "a zero-length cross product must fall back instead of normalizing to NaN";
+        assert Math.abs(degenerate.length() - 1.0f) < 1.0e-4f
+                : "the fallback axis must stay unit length";
+        Vector3f diagonal = YuanSpaceSlashEffect.normalizeOrElse(new Vector3f(3.0f, 4.0f, 0.0f), fallback);
+        assert Math.abs(diagonal.length() - 1.0f) < 1.0e-5f && diagonal.x() > 0.5f && diagonal.y() > 0.79f
+                : "a non-degenerate vector must normalize to itself";
         assert effect.contains("params.durationSeconds") && !effect.contains("FLASH_FRACTION")
                 : "space slash effect must use the configurable duration";
         String mesh = Files.readString(Path.of("src/main/java/com/yuan/space_slash/YuanSpaceSlashMesh.java"));

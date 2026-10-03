@@ -452,6 +452,10 @@ public final class YuanGuiCheck {
                 : "voronoi color sliders must dispatch by parsed slot and channel";
         assert composeScreen.contains("rest.startsWith(\"Glow\")")
                 : "named voronoi glow/gap colors must map to their slots";
+        assert composeScreen.contains("override fun removed()")
+                : "the compose screen must release the surface it allocated for this open";
+        assert !composeScreen.contains("skiaContext!!")
+                : "a missing Skia GL context must degrade instead of crashing the game";
 
         for (String language : java.util.List.of("zh_cn.json", "en_us.json")) {
             String translations = java.nio.file.Files.readString(java.nio.file.Path.of(

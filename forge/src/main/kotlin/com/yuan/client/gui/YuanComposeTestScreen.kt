@@ -267,19 +267,31 @@ class YuanComposeTestScreen(private val stack: ItemStack) : Screen(Component.lit
             skiaContext = DirectContext.makeGL()
             Companion.sharedContext = skiaContext
         }
+        val context = skiaContext ?: return
         if (renderTarget == null || surface == null ||
             boundFbo != fbo || lastWidth != width || lastHeight != height
         ) {
             closeSurfaceResources()
-            renderTarget = BackendRenderTarget.makeGL(width, height, 0, 8, fbo, FramebufferFormat.GR_GL_RGBA8)
+            val target = BackendRenderTarget.makeGL(width, height, 0, 8, fbo, FramebufferFormat.GR_GL_RGBA8)
+            renderTarget = target
             surface = Surface.makeFromBackendRenderTarget(
-                skiaContext!!, renderTarget!!, SurfaceOrigin.BOTTOM_LEFT,
+                context, target, SurfaceOrigin.BOTTOM_LEFT,
                 SurfaceColorFormat.BGRA_8888, ColorSpace.sRGB
             )
             boundFbo = fbo
             lastWidth = width
             lastHeight = height
         }
+    }
+
+    /**
+     * The surface and render target wrap this screen's framebuffer of the moment, while the Skia
+     * context and Compose scene are shared on purpose. Without this the full-window Surface leaked
+     * on every G press.
+     */
+    override fun removed() {
+        closeSurfaceResources()
+        super.removed()
     }
 
     private fun createScene(): ComposeScene =
