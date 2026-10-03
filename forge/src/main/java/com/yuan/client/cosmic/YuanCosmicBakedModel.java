@@ -37,7 +37,6 @@ import org.joml.Vector4f;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
@@ -74,6 +73,8 @@ public final class YuanCosmicBakedModel implements BakedModel {
     }
 
     private static final List<PendingRender> PENDING_RENDERS = new ArrayList<>();
+    private static final List<MaskQuadCacheEntry> MASK_QUAD_CACHE = new ArrayList<>();
+    private static final int MASK_QUAD_CACHE_LIMIT = 8;
 
     public YuanCosmicBakedModel(BakedModel wrapped, List<ResourceLocation> maskSprites) {
         this.wrapped = wrapped;
@@ -289,11 +290,50 @@ public final class YuanCosmicBakedModel implements BakedModel {
 
     private void renderRegularItemCosmic(ItemStack stack, PoseStack pose, VertexConsumer consumer, int light, int overlay) {
         Minecraft mc = Minecraft.getInstance();
-        List<TextureAtlasSprite> sprites = new ArrayList<>();
-        for (ResourceLocation res : maskSprites) {
-            sprites.add(mc.getTextureAtlas(InventoryMenu.BLOCK_ATLAS).apply(res));
+        mc.getItemRenderer().renderQuadList(pose, consumer, maskQuads(maskSprites), stack, light, overlay);
+    }
+
+    private record MaskQuadCacheEntry(List<TextureAtlasSprite> sprites, List<BakedQuad> quads) {}
+
+    /**
+     * Per-pixel mask geometry depends only on the atlas sprites, not on the stack or the render
+     * style, and every style path (cosmic/silk/tunnel/voronoi) needs the same quads. Sprites are
+     * recreated by each resource reload, which is exactly when the baked UVs go stale, so the cache
+     * is keyed on sprite identity and stays small enough to survive reload churn.
+     */
+    private static List<BakedQuad> maskQuads(List<ResourceLocation> masks) {
+        var atlas = Minecraft.getInstance().getTextureAtlas(InventoryMenu.BLOCK_ATLAS);
+        List<TextureAtlasSprite> sprites = new ArrayList<>(masks.size());
+        for (ResourceLocation mask : masks) {
+            sprites.add(atlas.apply(mask));
         }
-        List<BakedQuad> quads = new LinkedList<>();
+        for (MaskQuadCacheEntry entry : MASK_QUAD_CACHE) {
+            if (sameSprites(entry.sprites(), sprites)) {
+                return entry.quads();
+            }
+        }
+        List<BakedQuad> quads = bakeMaskQuads(sprites);
+        if (MASK_QUAD_CACHE.size() >= MASK_QUAD_CACHE_LIMIT) {
+            MASK_QUAD_CACHE.clear();
+        }
+        MASK_QUAD_CACHE.add(new MaskQuadCacheEntry(List.copyOf(sprites), List.copyOf(quads)));
+        return quads;
+    }
+
+    private static boolean sameSprites(List<TextureAtlasSprite> a, List<TextureAtlasSprite> b) {
+        if (a.size() != b.size()) {
+            return false;
+        }
+        for (int i = 0; i < a.size(); i++) {
+            if (a.get(i) != b.get(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static List<BakedQuad> bakeMaskQuads(List<TextureAtlasSprite> sprites) {
+        List<BakedQuad> quads = new ArrayList<>();
         for (int i = 0; i < sprites.size(); i++) {
             TextureAtlasSprite sprite = sprites.get(i);
             List<BlockElement> refElements = ITEM_MODEL_GENERATOR.processFrames(i, "layer" + i, sprite.contents());
@@ -337,6 +377,6 @@ public final class YuanCosmicBakedModel implements BakedModel {
                 }
             }
         }
-        mc.getItemRenderer().renderQuadList(pose, consumer, quads, stack, light, overlay);
+        return quads;
     }
 }

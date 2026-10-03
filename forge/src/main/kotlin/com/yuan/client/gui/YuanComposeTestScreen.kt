@@ -1018,12 +1018,17 @@ private fun ComposeTestContent(
                     setSilkColor(idx, id[10], v)
                 }
             }
-            if (id.startsWith("voronoiColor") && id.length >= 15) {
+            if (id.startsWith("voronoiColor")) {
+                // ids are voronoiColor<0-4><RGB A> and voronoiColor<Glow|Gap><RGBA>; the channel is
+                // always the last character, and slot names have no leading digits at all.
                 val tail = id.removePrefix("voronoiColor")
-                val idx = tail.takeWhile { it.isDigit() }.toIntOrNull()
-                val ch = tail.dropWhile { it.isDigit() }.firstOrNull()
-                if (idx != null && ch != null) {
-                    setVoronoiColor(idx, ch, v)
+                val digits = tail.takeWhile { it.isDigit() }
+                val rest = tail.drop(digits.length)
+                val channel = rest.lastOrNull()
+                val slot = digits.toIntOrNull()
+                    ?: if (rest.startsWith("Glow")) 5 else if (rest.startsWith("Gap")) 6 else null
+                if (slot != null && channel != null) {
+                    setVoronoiColor(slot, channel, v)
                 }
             }
             dirty = true

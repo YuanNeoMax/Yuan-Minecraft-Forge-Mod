@@ -142,6 +142,18 @@ public final class YuanRenderCheck {
         assert ringParticle.contains("\"yuan:gilded_ring\"") : "ring sprite path includes particle twice";
         assert sparkParticle.contains("\"yuan:gilded_spark\"") : "spark sprite path includes particle twice";
 
+        String ccUniform = read("src/main/java/com/yuan/client/cosmic/CCUniform.java");
+        assert ccUniform.contains("this.cache = values.clone()")
+                : "uniform cache must copy the caller array, otherwise in-place UV edits never re-upload";
+        assert !ccUniform.contains("this.cache = values;")
+                : "uniform cache still aliases the caller array";
+        assert cosmicBaked.contains("renderQuadList(pose, consumer, maskQuads(maskSprites)")
+                && cosmicBaked.contains("MASK_QUAD_CACHE")
+                : "mask geometry must be baked once and reused per atlas sprite identity";
+        String irisProbe = read("src/main/java/com/yuan/client/cosmic/YuanIris.java");
+        assert irisProbe.contains("MethodHandle") && !irisProbe.contains("printStackTrace")
+                : "Iris shader-pack probe must cache its reflection and stop dumping stacks per frame";
+
         Path mask = Path.of("src/main/resources/assets/yuan/textures/item/yuan_god_sword_mask.png");
         assert Files.exists(mask) : "black hole sword mask texture missing";
         var maskImage = ImageIO.read(mask.toFile());

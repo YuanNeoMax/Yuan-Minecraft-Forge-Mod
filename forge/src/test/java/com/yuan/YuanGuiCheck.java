@@ -444,6 +444,15 @@ public final class YuanGuiCheck {
         assert !YuanConfigScreen.worldAdjustWidgetVisible(true, false, true);
         assert YuanConfigScreen.worldAdjustWidgetVisible(false, false, true);
 
+        String composeScreen = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/kotlin/com/yuan/client/gui/YuanComposeTestScreen.kt"));
+        assert !composeScreen.contains("id.startsWith(\"voronoiColor\") && id.length")
+                : "length-gated voronoi dispatch silently drops the 14-character voronoiColor0R ids";
+        assert composeScreen.contains("if (id.startsWith(\"voronoiColor\")) {")
+                : "voronoi color sliders must dispatch by parsed slot and channel";
+        assert composeScreen.contains("rest.startsWith(\"Glow\")")
+                : "named voronoi glow/gap colors must map to their slots";
+
         for (String language : java.util.List.of("zh_cn.json", "en_us.json")) {
             String translations = java.nio.file.Files.readString(java.nio.file.Path.of(
                     "src/main/resources/assets/yuan/lang/" + language));

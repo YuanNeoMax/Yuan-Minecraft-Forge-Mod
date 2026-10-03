@@ -58,7 +58,7 @@ public abstract class CCUniform extends Uniform implements ICCUniform {
                 throw new IllegalArgumentException("Invalid size for uniform '%s', Expected: '%s', Got: '%s'.".formatted(getName(), getCount(), len(values)));
             }
             if (!equals(this.cache, values) || this.transpose) {
-                this.cache = values;
+                this.cache = values.clone();
                 this.transpose = false;
                 this.dirty = true;
             }
@@ -116,7 +116,7 @@ public abstract class CCUniform extends Uniform implements ICCUniform {
                 throw new IllegalArgumentException("Invalid size for uniform '%s', Expected: '%s', Got: '%s'.".formatted(getName(), getCount(), len(values)));
             }
             if (!equals(this.cache, values) || this.transpose != transpose) {
-                this.cache = values;
+                this.cache = values.clone();
                 this.transpose = transpose;
                 this.dirty = true;
             }
@@ -179,7 +179,7 @@ public abstract class CCUniform extends Uniform implements ICCUniform {
                 throw new IllegalArgumentException("Invalid size for uniform '%s', Expected: '%s', Got: '%s'.".formatted(getName(), getCount(), len(values)));
             }
             if (!equals(this.cache, values) || this.transpose != transpose) {
-                this.cache = values;
+                this.cache = values.clone();
                 this.transpose = transpose;
                 this.dirty = true;
             }
