@@ -44,6 +44,14 @@ public final class YuanTimeRewindRecorder {
     private final RewindHistory history;
     private final Map<BlockPos, CompoundTag> lastBlockEntity = new HashMap<>();
     private final Map<UUID, CompoundTag> lastEntityNbt = new HashMap<>();
+    /**
+     * Earliest tick each entity was seen by this recorder. Snapshots are only written when an
+     * entity's NBT changes, so a standing-still cow or an armor stand has a single snapshot that
+     * the pruning window quickly drops; without this registry the restorer cannot tell "created
+     * during the window" from "idle since before it" and deletes idle entities on every rewind.
+     * Entries are never dropped: removing one would make a returning entity look newly born.
+     */
+    private final Map<UUID, Long> entityFirstSeenTick = new HashMap<>();
 
     public YuanTimeRewindRecorder(ServerLevel level, long windowTicks) {
         this.level = level;
@@ -57,6 +65,10 @@ public final class YuanTimeRewindRecorder {
 
     public long windowTicks() {
         return windowTicks;
+    }
+
+    public Long entityFirstSeenTick(UUID uuid) {
+        return entityFirstSeenTick.get(uuid);
     }
 
     public void recordBlockChange(long tick, BlockPos pos, BlockState oldState, CompoundTag oldBlockEntity) {
@@ -85,6 +97,7 @@ public final class YuanTimeRewindRecorder {
             e.saveWithoutId(tag);
             UUID uuid = e.getUUID();
             seen.add(uuid);
+            entityFirstSeenTick.putIfAbsent(uuid, tick);
             CompoundTag previous = lastEntityNbt.get(uuid);
             if (previous != null && previous.equals(tag)) {
                 continue;

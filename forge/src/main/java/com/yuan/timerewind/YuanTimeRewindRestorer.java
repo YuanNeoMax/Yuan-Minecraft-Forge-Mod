@@ -4,11 +4,9 @@ import com.yuan.item.YuanGodSwordConfig;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import net.minecraft.BlockUtil;
 import net.minecraft.core.BlockPos;
@@ -642,6 +640,10 @@ public final class YuanTimeRewindRestorer {
                                               long targetTick) {
         if (!config.rewindEntities && !config.rewindItems && !config.rewindExperience) return;
         if (!hasReliableEntityBaseline(before, targetTick)) return;
+        YuanTimeRewindRecorder recorder = YuanTimeRewindEvents.recorder(level);
+        // Without a recorder there is no evidence of when anything appeared, and deletion is the
+        // irreversible half of a rewind, so skip removal rather than guess.
+        if (recorder == null) return;
         boolean radiusMode = config.rewindScope == 1;
         if (radiusMode && player == null) return;
         double radius = radiusMode
@@ -650,14 +652,6 @@ public final class YuanTimeRewindRestorer {
         double radiusSqr = radius * radius;
         Vec3 center = radiusMode ? radiusCenterFor(level, level.dimension(), player.level().dimension(),
                 player.getX(), player.getY(), player.getZ()) : null;
-        Set<UUID> retained = new HashSet<>();
-        for (Object e : before) {
-            if (e instanceof YuanTimeRewindRecorder.EntitySnapshot es
-                    && es.tick() <= targetTick
-                    && entityCategoryEnabled(config, es.type())) {
-                retained.add(es.uuid());
-            }
-        }
         List<Entity> toDiscard = new ArrayList<>();
         for (Entity entity : level.getEntities().getAll()) {
             if (entity == null || entity.isRemoved() || entity instanceof Player) continue;
@@ -666,13 +660,23 @@ public final class YuanTimeRewindRestorer {
                     entity.getX(), entity.getY(), entity.getZ(), radiusSqr)) {
                 continue;
             }
-            if (!retained.contains(entity.getUUID())) {
+            if (isProvablyCreatedAfter(recorder.entityFirstSeenTick(entity.getUUID()), targetTick)) {
                 toDiscard.add(entity);
             }
         }
         for (Entity entity : toDiscard) {
             entity.discard();
         }
+    }
+
+    /**
+     * An entity may only be discarded when the recorder positively saw it appear after the target
+     * tick. Absence from the retained history is not such evidence: entities whose NBT never
+     * changes (armor stands, paintings, idle livestock) stop being snapshotted once their single
+     * entry ages out of the pruning window, and used to be deleted as "newly created" by that.
+     */
+    public static boolean isProvablyCreatedAfter(Long firstSeenTick, long targetTick) {
+        return firstSeenTick == null || firstSeenTick > targetTick;
     }
 
     private static void applyWorldState(ServerLevel level, YuanGodSwordConfig config,
@@ -758,7 +762,11 @@ public final class YuanTimeRewindRestorer {
                     ? level.getServer().getPlayerList().getPlayers()
                     : level.players();
             for (ServerPlayer other : candidates) {
-                if (other == trigger) continue;
+                // While the triggerer's own inventory is rolled back by restorePlayerState their
+                // picks are already covered. If that switch is off, applyEntities still resurrects
+                // the item entities they consumed, so the picked-up copies must be deducted here
+                // or the same items end up both in the inventory and on the ground.
+                if (other == trigger && config.rewindPlayerState) continue;
                 remaining -= deductItemFromInventory(other.getInventory(), stack, remaining);
                 if (remaining <= 0) break;
             }
@@ -781,8 +789,12 @@ public final class YuanTimeRewindRestorer {
         for (YuanTimeRewindRecorder.BlockChange bc : earliest.values()) {
             if (bc.oldBlockEntity() == null) continue;
             BlockEntity be = level.getBlockEntity(bc.pos());
-            if (be != null && !be.getBlockState().equals(bc.oldState())) continue;
-            CompoundTag current = be == null ? new CompoundTag() : be.saveWithFullMetadata();
+            // A missing block entity means the container was destroyed or its chunk is unloaded, not
+            // that it was emptied: treating it as an empty "current" state would report every stored
+            // item as a delta and strip it from the other players. applyBlockChange restores the
+            // recorded contents, and item drops go through deductOtherPlayerItems.
+            if (be == null || !be.getBlockState().equals(bc.oldState())) continue;
+            CompoundTag current = be.saveWithFullMetadata();
             for (ItemStack delta : computeContainerDeltas(bc.oldBlockEntity(), current)) {
                 int remaining = delta.getCount();
                 for (ServerPlayer other : candidates) {

@@ -10,21 +10,21 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Pseudo
 @Mixin(targets = "net.irisshaders.iris.uniforms.CapturedRenderingState", remap = false)
 public abstract class TimestopIrisCapturedStateMixin {
-    @Inject(method = "setTickDelta", at = @At("HEAD"), cancellable = true, remap = false)
+    @Inject(method = "setTickDelta", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private void yuanTimestopIrisTickDelta(float tickDelta, CallbackInfo ci) {
         if (YuanTimeStop.get()) {
             ci.cancel();
         }
     }
 
-    @Inject(method = "setRealTickDelta", at = @At("HEAD"), cancellable = true, remap = false)
+    @Inject(method = "setRealTickDelta", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private void yuanTimestopIrisRealTickDelta(float tickDelta, CallbackInfo ci) {
         if (YuanTimeStop.get()) {
             ci.cancel();
         }
     }
 
-    @Inject(method = "setCloudTime", at = @At("HEAD"), cancellable = true, remap = false)
+    @Inject(method = "setCloudTime", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private void yuanTimestopIrisCloudTime(float cloudTime, CallbackInfo ci) {
         if (YuanTimeStop.get()) {
             ci.cancel();

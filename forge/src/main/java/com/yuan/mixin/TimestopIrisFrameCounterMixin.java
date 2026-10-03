@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Pseudo
 @Mixin(targets = "net.irisshaders.iris.uniforms.SystemTimeUniforms$FrameCounter", remap = false)
 public abstract class TimestopIrisFrameCounterMixin {
-    @Inject(method = "beginFrame", at = @At("HEAD"), cancellable = true, remap = false)
+    @Inject(method = "beginFrame", at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private void yuanTimestopIrisFrameCounter(CallbackInfo ci) {
         if (YuanTimeStop.get()) {
             ci.cancel();

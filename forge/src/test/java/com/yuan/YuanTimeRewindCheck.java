@@ -298,6 +298,12 @@ public final class YuanTimeRewindCheck {
         String configPacket = Files.readString(Path.of("src/main/java/com/yuan/network/YuanGodSwordConfigPacket.java"));
         assert configPacket.contains("invalidateWindowCache")
                 : "sword config save must invalidate the record window cache";
+        assert configPacket.contains("instanceof YuanGodSwordItem")
+                : "the config packet must reject a main hand that is not the god sword";
+        assert !configPacket.contains("put(YuanGodSwordConfig.TAG, message.tag.copy())")
+                : "the config packet must not stamp the raw client tag onto the stack";
+        assert configPacket.contains("config.read(probe)") && configPacket.contains("config.write(stack)")
+                : "the config packet must normalize client values through the config round-trip";
         String recorderSrc = Files.readString(Path.of("src/main/java/com/yuan/timerewind/YuanTimeRewindRecorder.java"));
         assert recorderSrc.contains("YuanTimeRewindConfig.containerSnapshotIntervalTicks")
                 : "container snapshot interval must be configurable";
@@ -657,6 +663,26 @@ public final class YuanTimeRewindCheck {
                 : "container delta deduction must use the after-target history";
         assert rewindRestorer.contains("earliest.putIfAbsent(bc.pos(), bc)")
                 : "container delta deduction must select the earliest after-target block entity event";
+
+        assert !YuanTimeRewindRestorer.isProvablyCreatedAfter(900L, 1000L)
+                : "an entity first seen before the target tick must never be discarded";
+        assert !YuanTimeRewindRestorer.isProvablyCreatedAfter(1000L, 1000L)
+                : "an entity first seen exactly on the target tick must never be discarded";
+        assert YuanTimeRewindRestorer.isProvablyCreatedAfter(1001L, 1000L)
+                : "an entity first seen after the target tick must be discarded";
+        assert YuanTimeRewindRestorer.isProvablyCreatedAfter(null, 1000L)
+                : "an entity the recorder has never seen must count as newly created";
+        assert rewindRestorer.contains("YuanTimeRewindEvents.recorder(level)")
+                && rewindRestorer.contains("entityFirstSeenTick")
+                : "created-entity removal must key off the recorder first-sighting registry";
+        assert !rewindRestorer.contains("retained.contains(entity.getUUID())")
+                : "created-entity removal must not treat a missing snapshot as proof of creation";
+        assert recorderSrc.contains("entityFirstSeenTick.putIfAbsent(uuid, tick)")
+                : "the recorder must register the first tick every entity is seen";
+        assert deductOtherPlayersBlock.contains("other == trigger && config.rewindPlayerState")
+                : "the triggerer must be deducted when their player state is not rewound";
+        assert !rewindRestorer.contains("be == null ? new CompoundTag()")
+                : "a missing container must not be read as emptied when computing deltas";
 
         System.out.println("YuanTimeRewindCheck OK");
     }

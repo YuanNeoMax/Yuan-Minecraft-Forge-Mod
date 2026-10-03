@@ -231,6 +231,12 @@ public final class YuanTimeStopCheck {
                 "TimestopIrisCapturedStateMixin", "TimestopIrisCommonUniformsMixin"}) {
             assert mixinConfig.contains(name) : name + " must be registered";
         }
+        for (String irisMixin : new String[]{"TimestopIrisTimerMixin", "TimestopIrisFrameCounterMixin",
+                "TimestopIrisCapturedStateMixin", "TimestopIrisCommonUniformsMixin"}) {
+            String irisSrc = Files.readString(Path.of("src/main/java/com/yuan/mixin/" + irisMixin + ".java"));
+            assert irisSrc.contains("remap = false") && irisSrc.contains("require = 0")
+                    : irisMixin + " must degrade instead of crashing at boot when Iris renames a method";
+        }
 
         String serverMixin = Files.readString(Path.of("src/main/java/com/yuan/mixin/TimestopMinecraftServerMixin.java"));
         assert serverMixin.contains("method = \"tickServer\"")
