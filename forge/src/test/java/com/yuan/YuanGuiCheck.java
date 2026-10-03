@@ -456,6 +456,10 @@ public final class YuanGuiCheck {
                 : "the compose screen must release the surface it allocated for this open";
         assert !composeScreen.contains("skiaContext!!")
                 : "a missing Skia GL context must degrade instead of crashing the game";
+        assert !composeScreen.contains("YuanGodSwordConfigPacket(updated.toTag())")
+                : "sending only toTag() drops the preset list, so presets never survived a relog";
+        assert composeScreen.contains("savePreset") && composeScreen.contains("syncStackConfig()")
+                : "saving a preset must reach the server-side stack, not just the client copy";
 
         for (String language : java.util.List.of("zh_cn.json", "en_us.json")) {
             String translations = java.nio.file.Files.readString(java.nio.file.Path.of(

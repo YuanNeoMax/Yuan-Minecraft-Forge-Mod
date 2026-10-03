@@ -4,12 +4,16 @@ import com.yuan.item.YuanGodSwordConfig;
 import com.yuan.item.YuanGodSwordItem;
 import java.util.function.Supplier;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.network.NetworkEvent;
 
 public class YuanGodSwordConfigPacket {
+    private static final int MAX_PRESETS = 8;
+
     private final CompoundTag tag;
 
     public YuanGodSwordConfigPacket(CompoundTag tag) {
@@ -44,8 +48,41 @@ public class YuanGodSwordConfigPacket {
             YuanGodSwordConfig config = new YuanGodSwordConfig();
             config.read(probe);
             config.write(stack);
+            copyPresets(message.tag, stack);
             com.yuan.timerewind.YuanTimeRewindEvents.invalidateWindowCache();
         });
         context.get().setPacketHandled(true);
+    }
+
+    /**
+     * Preset slots live inside the same child tag, and the config screen is the only place they are
+     * edited, so they travel with the config save. Each incoming preset is pushed back through the
+     * config itself: a hand-edited list cannot smuggle arbitrary keys onto the stack, and the slot
+     * count is bounded so a client cannot grow the item's NBT without limit.
+     */
+    private static void copyPresets(CompoundTag incoming, ItemStack stack) {
+        if (!incoming.contains(YuanGodSwordConfig.PRESETS_KEY)) {
+            return;
+        }
+        ListTag incomingPresets = incoming.getList(YuanGodSwordConfig.PRESETS_KEY, Tag.TAG_COMPOUND);
+        CompoundTag target = stack.getOrCreateTagElement(YuanGodSwordConfig.TAG);
+        if (incomingPresets.isEmpty()) {
+            target.remove(YuanGodSwordConfig.PRESETS_KEY);
+            return;
+        }
+        ListTag normalized = new ListTag();
+        for (int i = 0; i < incomingPresets.size() && i < MAX_PRESETS; i++) {
+            CompoundTag preset = incomingPresets.getCompound(i);
+            if (preset.isEmpty()) {
+                normalized.add(new CompoundTag());
+                continue;
+            }
+            ItemStack probe = new ItemStack(stack.getItem());
+            probe.addTagElement(YuanGodSwordConfig.TAG, preset.copy());
+            YuanGodSwordConfig presetConfig = new YuanGodSwordConfig();
+            presetConfig.read(probe);
+            normalized.add(presetConfig.toTag());
+        }
+        target.put(YuanGodSwordConfig.PRESETS_KEY, normalized);
     }
 }

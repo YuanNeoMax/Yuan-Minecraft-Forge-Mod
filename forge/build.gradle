@@ -78,6 +78,10 @@ jar {
 }
 
 tasks.named('jarJar', Jar).configure {
+	// The -all jar is what gets shipped, so it must carry the license text too.
+	from("${rootProject.projectDir}/LICENSE") {
+		rename { "${it}_${base.archivesName.get()}"}
+	}
 	from({ project.configurations.composeRuntime.resolvedConfiguration.resolvedArtifacts.collect { zipTree(it.file) } }) {
 		exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
 		exclude 'META-INF/MANIFEST.MF'

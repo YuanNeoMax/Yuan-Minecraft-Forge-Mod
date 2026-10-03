@@ -10,6 +10,8 @@ import net.minecraft.world.item.Items;
  */
 public final class YuanGodSwordConfig {
     public static final String TAG = "YuanGodSwordConfig";
+    /** Preset slots ride inside this item's own {@link #TAG} child tag. */
+    public static final String PRESETS_KEY = "presets";
 
     public boolean enabled = true;
     public boolean invulnerable = true;

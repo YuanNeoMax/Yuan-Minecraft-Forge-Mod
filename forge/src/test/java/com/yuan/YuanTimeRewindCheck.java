@@ -304,6 +304,10 @@ public final class YuanTimeRewindCheck {
                 : "the config packet must not stamp the raw client tag onto the stack";
         assert configPacket.contains("config.read(probe)") && configPacket.contains("config.write(stack)")
                 : "the config packet must normalize client values through the config round-trip";
+        assert configPacket.contains("copyPresets(message.tag, stack)")
+                : "the config packet must carry preset slots to the server side stack";
+        assert configPacket.contains("i < MAX_PRESETS")
+                : "the preset list must be bounded before it reaches the stack";
         String recorderSrc = Files.readString(Path.of("src/main/java/com/yuan/timerewind/YuanTimeRewindRecorder.java"));
         assert recorderSrc.contains("YuanTimeRewindConfig.containerSnapshotIntervalTicks")
                 : "container snapshot interval must be configurable";

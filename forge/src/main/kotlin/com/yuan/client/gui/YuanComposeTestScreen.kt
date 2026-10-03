@@ -305,26 +305,38 @@ class YuanComposeTestScreen(private val stack: ItemStack) : Screen(Component.lit
         updated.write(stack)
         config.copyFrom(updated)
         baseline.copyFrom(updated)
-        Yuan.CHANNEL.sendToServer(YuanGodSwordConfigPacket(updated.toTag()))
+        syncStackConfig()
         YuanTimeStop.startCooldown(0)
         YuanTimeStopServerState.startCooldown(0)
     }
 
+    /**
+     * The server owns the ItemStack in survival, so everything stored in the config child tag has
+     * to travel together: sending only toConfig().toTag() used to drop the preset list, and presets
+     * therefore never survived a relog.
+     */
+    private fun syncStackConfig() {
+        stack.getTagElement(YuanGodSwordConfig.TAG)?.let {
+            Yuan.CHANNEL.sendToServer(YuanGodSwordConfigPacket(it.copy()))
+        }
+    }
+
     private fun savePreset(slot: Int, state: V9State) {
         val root = stack.getOrCreateTagElement(YuanGodSwordConfig.TAG)
-        val presets = root.getList("presets", Tag.TAG_COMPOUND.toInt())
+        val presets = root.getList(YuanGodSwordConfig.PRESETS_KEY, Tag.TAG_COMPOUND.toInt())
         while (presets.size <= slot) {
             presets.add(CompoundTag())
         }
         val temp = ItemStack(Items.AIR)
         state.toConfig().write(temp)
         temp.getTagElement(YuanGodSwordConfig.TAG)?.let { presets.set(slot, it) }
-        root.put("presets", presets)
+        root.put(YuanGodSwordConfig.PRESETS_KEY, presets)
+        syncStackConfig()
     }
 
     private fun loadPreset(slot: Int): V9State? {
         val root = stack.getTagElement(YuanGodSwordConfig.TAG) ?: return null
-        val presets = root.getList("presets", Tag.TAG_COMPOUND.toInt())
+        val presets = root.getList(YuanGodSwordConfig.PRESETS_KEY, Tag.TAG_COMPOUND.toInt())
         if (slot < 0 || slot >= presets.size) return null
         val tag = presets.getCompound(slot)
         if (tag.isEmpty) return null
