@@ -62,6 +62,20 @@ All rights remain with the original author.
   its authors; this port keeps the original intent with mod-specific
   integration and is included for reference.
 
+## Photon / 光子 (VFX library, bundled as a nested mod)
+
+The space-slash streak FX run on the Photon VFX library by Low-Drag-MC
+(https://github.com/Low-Drag-MC/Photon, editor on Modrinth/CurseForge).
+
+- This mod bundles the **unmodified** `photon-forge-1.20.1-1.1.17` jar as a
+  Forge Jar-In-Jar nested mod (`META-INF/jars/`); Photon in turn nests LDLib
+  and MixinExtras. No Photon class or resource is extracted, modified or
+  re-licensed.
+- Photon is licensed **CC BY-NC-SA 4.0**
+  (https://creativecommons.org/licenses/by-nc-sa/4.0/): share and adapt only
+  non-commercially, with attribution, under the same license. This project's
+  MIT license therefore does **not** cover the bundled Photon jar.
+
 ## Live2D — see the separate YuanLive2D project
 
 The (optional) Live2D companion mod and its bundled SDK/model live in a

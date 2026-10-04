@@ -94,6 +94,16 @@ repositories {
 	maven {
 		url = 'https://repo.spongepowered.org/maven'
 	}
+	maven {
+		// Photon VFX（斩击雨特效库），1.20.1 Forge 仅发布 snapshot
+		url = 'https://maven.firstdark.dev/snapshots'
+		content { includeGroup 'com.lowdragmc.photon' }
+	}
+	maven {
+		// Photon 的 pom 把 ldlib 声明为 runtime + 全排除，编译期若需要 LDLib 类型从这里取
+		url = 'https://maven.firstdark.dev/snapshots'
+		content { includeGroup 'com.lowdragmc.ldlib' }
+	}
 	google()
 }
 
@@ -154,6 +164,15 @@ dependencies {
     // 自打包 MixinExtras：不依赖 Embeddium 附带的那份，关掉 Oculus/Embeddium 也能启动
     implementation(jarJar("io.github.llamalad7:mixinextras-forge:0.3.5")) {
         jarJar.ranged(it, "[0.3.5,)")
+    }
+
+    // Photon VFX（空间斩·斩击雨）：以嵌套模组随 -all.jar 分发，它自己再内嵌 LDLib 与 MixinExtras。
+    // 许可 CC BY-NC-SA 4.0，见 THIRD_PARTY_NOTICES.md；不得解开合并，必须保持嵌套模组形态。
+    // embeddium/oculus 是 Photon 的可选 shader 集成依赖，实例里已有，不参与解析。
+    implementation(jarJar("com.lowdragmc.photon:photon-forge-1.20.1:1.1.17")) {
+        jarJar.ranged(it, "[1.1.17,1.2)")
+        exclude group: "org.embeddedt"
+        exclude group: "maven.modrinth"
     }
 }
 
