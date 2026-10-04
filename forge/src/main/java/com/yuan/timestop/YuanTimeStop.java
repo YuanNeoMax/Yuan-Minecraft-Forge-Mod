@@ -322,12 +322,15 @@ public final class YuanTimeStop {
             }
             BlockPos center = player.blockPosition();
             int radius = 32;
+            // One reused cursor instead of 274,625 BlockPos allocations from center.offset(...); the
+            // engine only needs an immutable coordinate for the few positions that actually emit light.
+            BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
             for (int x = -radius; x <= radius; x++) {
                 for (int y = -radius; y <= radius; y++) {
                     for (int z = -radius; z <= radius; z++) {
-                        BlockPos pos = center.offset(x, y, z);
-                        if (level.getBlockState(pos).getLightEmission() > 0) {
-                            level.getChunkSource().getLightEngine().checkBlock(pos);
+                        cursor.set(center.getX() + x, center.getY() + y, center.getZ() + z);
+                        if (level.getBlockState(cursor).getLightEmission() > 0) {
+                            level.getChunkSource().getLightEngine().checkBlock(cursor.immutable());
                         }
                     }
                 }

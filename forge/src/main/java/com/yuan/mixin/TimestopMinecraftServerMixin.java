@@ -13,7 +13,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(MinecraftServer.class)
 public abstract class TimestopMinecraftServerMixin {
-    @Inject(method = "tickServer", at = @At("HEAD"), cancellable = true)
+    /**
+     * Ends a manual-expiry time stop. This deliberately does not cancel tickServer any more: the
+     * world freeze is enforced by the per-level, per-entity and chunk-cache mixins, while cancelling
+     * here also skipped saveEverything (no autosave at all during a stop, so a crash lost the work),
+     * the server status refresh, and Forge's ServerTickEvent for every other mod.
+     */
+    @Inject(method = "tickServer", at = @At("HEAD"))
     private void timestopTick(CallbackInfo ci) {
         if (!YuanTimeStopServerState.isStopped()) {
             return;
@@ -35,10 +41,6 @@ public abstract class TimestopMinecraftServerMixin {
                     YuanTimeStopServerState.getWielderX(),
                     YuanTimeStopServerState.getWielderY(),
                     YuanTimeStopServerState.getWielderZ()));
-            return;
         }
-        MinecraftServer server = (MinecraftServer) (Object) this;
-        server.tickChildren(() -> true);
-        ci.cancel();
     }
 }

@@ -242,8 +242,8 @@ public final class YuanTimeStopCheck {
         assert serverMixin.contains("method = \"tickServer\"")
                 && serverMixin.contains("System.currentTimeMillis()")
                 : "tickServer injection missing";
-        assert serverMixin.contains("ci.cancel()")
-                : "tickServer injection must cancel after child ticking";
+        assert !serverMixin.contains("ci.cancel()") && !serverMixin.contains("cancellable = true")
+                : "tickServer must not be cancelled: that also skips saveEverything, the server status and every mod's ServerTickEvent";
         assert !serverMixin.contains("method = \"runServer\"")
                 : "runServer injection must be removed";
         assert !serverMixin.contains("getWorldArray")
@@ -320,8 +320,11 @@ public final class YuanTimeStopCheck {
                 && entityRenderMixin.contains("YuanTimeStop.livePartialTick()")
                 : "entity render partialTick must freeze only frozen entities and stay live for the exempt player";
 
-        assert serverMixin.contains("server.tickChildren(() -> true)")
-                : "tickChildren must be called directly";
+        assert !serverMixin.contains("tickChildren")
+                : "the freeze must stay in the fine-grained mixins; cancelling tickServer also skips autosave, status and ServerTickEvent";
+        assert state.contains("BlockPos.MutableBlockPos cursor")
+                && !state.contains("center.offset(x, y, z)")
+                : "the light recheck must reuse one cursor instead of allocating a BlockPos per voxel";
         String integratedServerMixin = Files.readString(Path.of("src/main/java/com/yuan/mixin/TimestopIntegratedServerMixin.java"));
         assert integratedServerMixin.contains("server.paused = false")
                 : "paused must be set directly";
