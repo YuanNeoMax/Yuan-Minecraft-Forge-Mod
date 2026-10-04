@@ -9,9 +9,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.resources.sounds.SimpleSoundInstance;
-import net.minecraft.client.resources.sounds.SoundInstance;
-import net.minecraft.sounds.SoundSource;
 import net.minecraft.Util;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
@@ -25,10 +22,8 @@ public final class YuanTimeStop {
     public static long millis = 0L;
     public static long realMillis = 0L;
     private static volatile YuanGodSwordConfig activeConfig = new YuanGodSwordConfig();
-    private static SoundInstance loopSound;
     private static volatile long nextAllowedMillis = 0L;
     private static boolean locallyStarted = false;
-    private static boolean localStartSoundReplayed = false;
 
     private YuanTimeStop() {
     }
@@ -175,22 +170,12 @@ public final class YuanTimeStop {
 
     public static void setIsTimeStop(boolean value) {
         boolean wasStopped = get();
+        Minecraft mc = Minecraft.getInstance();
         if (!value) {
-            stopLoopSound();
-            Minecraft mc0 = Minecraft.getInstance();
-            mc0.timer.lastMs = Util.getMillis();
-            mc0.getSoundManager().resume();
+            mc.timer.lastMs = Util.getMillis();
+            mc.getSoundManager().resume();
         } else {
-            Minecraft mc0 = Minecraft.getInstance();
-            mc0.getSoundManager().pause();
-            if (locallyStarted && !localStartSoundReplayed && activeConfig.soundEnabled) {
-                if (activeConfig.soundLoop && loopSound != null) {
-                    mc0.getSoundManager().play(loopSound);
-                } else if (mc0.player != null) {
-                    mc0.player.playSound(YuanTimeStopSounds.STOP.get(), activeConfig.soundVolume, 1.0f);
-                }
-                localStartSoundReplayed = true;
-            }
+            mc.getSoundManager().pause();
         }
         YuanTimeStopServerState.setStopped(value);
         if (wasStopped && !value) {
@@ -198,15 +183,14 @@ public final class YuanTimeStop {
         }
     }
 
+    /** Marks that this client started the stop, so only its owner gets the local end flourish. */
     public static void markLocalStart() {
         locallyStarted = true;
-        localStartSoundReplayed = false;
     }
 
     public static boolean consumeLocalEnd() {
         boolean was = locallyStarted;
         locallyStarted = false;
-        localStartSoundReplayed = false;
         return was;
     }
 
@@ -275,37 +259,13 @@ public final class YuanTimeStop {
     }
 
     private static void playStartSound(Player player) {
-        stopLoopSound();
-        if (activeConfig.soundLoop) {
-            loopSound = new SimpleSoundInstance(
-                    YuanTimeStopSounds.STOP.get().getLocation(),
-                    SoundSource.PLAYERS,
-                    activeConfig.soundVolume,
-                    1.0f,
-                    player.getRandom(),
-                    true,
-                    0,
-                    SoundInstance.Attenuation.NONE,
-                    player.getX(), player.getY(), player.getZ(),
-                    true);
-            Minecraft.getInstance().getSoundManager().play(loopSound);
-        } else {
-            player.playSound(YuanTimeStopSounds.STOP.get(), activeConfig.soundVolume, 1.0f);
-        }
-    }
-
-    private static void stopLoopSound() {
-        if (loopSound != null) {
-            Minecraft.getInstance().getSoundManager().stop(loopSound);
-            loopSound = null;
-        }
+        player.playSound(YuanTimeStopSounds.STOP.get(), activeConfig.soundVolume, 1.0f);
     }
 
     public static void playEndSound(Player player) {
         if (!activeConfig.soundEnabled || player == null) {
             return;
         }
-        stopLoopSound();
         player.playSound(YuanTimeStopSounds.START.get(), activeConfig.soundVolume, 1.0f);
     }
 

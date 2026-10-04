@@ -137,8 +137,9 @@ public final class YuanTimeStopCheck {
                 : "YuanTimeStop must honor particle size, custom color and sound toggle";
         assert state.contains("particleCount") && state.contains("particleAlpha")
                 && state.contains("particleSpin") && state.contains("soundVolume")
-                && state.contains("soundLoop")
-                : "YuanTimeStop must honor particle count/alpha/spin and sound volume/loop";
+                : "YuanTimeStop must honor particle count/alpha/spin and sound volume";
+        assert !state.contains("loopSound") && !state.contains("SimpleSoundInstance")
+                : "the sound loop was dropped: the start sting must be a one-shot, not a repeat instance";
         assert state.contains("freezeLerp") && state.contains("shouldFreezeEntity")
                 && state.contains("entity.xOld = entity.getX()")
                 : "YuanTimeStop must align frozen entity interpolation state";
