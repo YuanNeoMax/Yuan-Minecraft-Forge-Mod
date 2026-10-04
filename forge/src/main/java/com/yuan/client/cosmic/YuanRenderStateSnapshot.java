@@ -23,6 +23,7 @@ public final class YuanRenderStateSnapshot {
     private final Matrix4f modelViewMatrix;
     private final Matrix4f projectionMatrix;
     private final VertexSorting vertexSorting;
+    private boolean modelViewPushed;
 
     private YuanRenderStateSnapshot(boolean depthTest, boolean depthMask, int depthFunc, boolean blend,
                                     int blendSrcRgb, int blendDstRgb, int blendSrcAlpha, int blendDstAlpha,
@@ -92,6 +93,7 @@ public final class YuanRenderStateSnapshot {
                 colorMaskValues[2] > 0.5f, colorMaskValues[3] > 0.5f);
         RenderSystem.polygonMode(GL11.GL_FRONT_AND_BACK, polygonMode);
         RenderSystem.getModelViewStack().pushPose();
+        modelViewPushed = true;
         RenderSystem.getModelViewStack().setIdentity();
         RenderSystem.getModelViewStack().mulPoseMatrix(modelViewMatrix);
         RenderSystem.applyModelViewMatrix();
@@ -99,7 +101,13 @@ public final class YuanRenderStateSnapshot {
     }
 
     public void cleanup() {
-        RenderSystem.getModelViewStack().popPose();
-        RenderSystem.applyModelViewMatrix();
+        // Only pop when restore() actually pushed: it can throw part-way, and an unmatched pop
+        // underflows the shared model view stack for the rest of the game.
+        if (modelViewPushed) {
+            modelViewPushed = false;
+            RenderSystem.getModelViewStack().popPose();
+            RenderSystem.applyModelViewMatrix();
+        }
+        RenderSystem.setProjectionMatrix(projectionMatrix, vertexSorting);
     }
 }

@@ -11,6 +11,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -22,10 +24,13 @@ import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import net.minecraftforge.network.PacketDistributor;
 
 @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class YuanTimeRewindEvents {
+    private static final Logger LOGGER = LoggerFactory.getLogger("YuanTimeRewind");
     private static final Map<ServerLevel, YuanTimeRewindRecorder> RECORDERS = new IdentityHashMap<>();
     private static PendingPlayback pendingPlayback;
     private static int cachedMaxWindowSeconds = 0;
@@ -233,7 +238,13 @@ public final class YuanTimeRewindEvents {
             YuanTimeRewindServerState.clearPlayback();
             YuanTimeRewindServerState.endPlayback();
             YuanTimeRewindServerState.release();
-            throw e;
+            // Rethrowing here took the whole server down with the world left half reverted; the
+            // playback state is already cleaned, so report it and keep running.
+            LOGGER.warn("[YuanTimeRewind] playback failed, partial restore left applied", e);
+            if (pending.player != null && !pending.player.isRemoved()) {
+                pending.player.displayClientMessage(
+                        Component.literal("§c[回溯] 播放中断，已保留部分还原"), true);
+            }
         }
     }
 

@@ -154,6 +154,18 @@ public final class YuanRenderCheck {
         assert irisProbe.contains("MethodHandle") && !irisProbe.contains("printStackTrace")
                 : "Iris shader-pack probe must cache its reflection and stop dumping stacks per frame";
 
+        String deferred = read("src/main/java/com/yuan/client/cosmic/YuanDeferredRender.java");
+        assert !deferred.contains("AFTER_LEVEL && YuanIris")
+                : "the pending item queue must drain even when the pack was toggled off mid-frame";
+        assert cosmicBaked.contains("List<PendingRender> pending = new ArrayList<>(PENDING_RENDERS);")
+                : "the pending queue must be swapped out and cleared before it is drained";
+        String snapshot = read("src/main/java/com/yuan/client/cosmic/YuanRenderStateSnapshot.java");
+        assert snapshot.contains("if (modelViewPushed)")
+                : "cleanup must not pop a model view pose that restore never pushed";
+        String itemMixin = read("src/main/java/com/yuan/mixin/ItemRendererMixin.java");
+        assert itemMixin.contains("} finally {") && itemMixin.contains("pose.popPose();")
+                : "the taken-over item render must always balance its PoseStack push";
+
         Path mask = Path.of("src/main/resources/assets/yuan/textures/item/yuan_god_sword_mask.png");
         assert Files.exists(mask) : "black hole sword mask texture missing";
         var maskImage = ImageIO.read(mask.toFile());

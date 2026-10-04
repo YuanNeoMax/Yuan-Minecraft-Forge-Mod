@@ -687,6 +687,12 @@ public final class YuanTimeRewindCheck {
                 : "the triggerer must be deducted when their player state is not rewound";
         assert !rewindRestorer.contains("be == null ? new CompoundTag()")
                 : "a missing container must not be read as emptied when computing deltas";
+        assert !rewindEvents.contains("throw e")
+                : "a failed playback must be logged and cleaned up, not rethrown into the tick loop";
+        assert rewindEvents.contains("playback failed, partial restore left applied")
+                : "a failed playback has to report what it left half applied";
+        assert rewindRestorer.contains("YuanTimeRewindEvents.clearPendingPlayback()")
+                : "an aborted restore start must drop the pending playback it already published";
 
         System.out.println("YuanTimeRewindCheck OK");
     }

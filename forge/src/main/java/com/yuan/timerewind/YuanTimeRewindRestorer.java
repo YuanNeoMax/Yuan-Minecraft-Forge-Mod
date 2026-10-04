@@ -195,6 +195,10 @@ public final class YuanTimeRewindRestorer {
             return true;
         } finally {
             if (!started) {
+                // restoreProgressive already published the pending playback when something after it
+                // threw; leaving it set would keep ServerPlayer/ServerLevel references alive and let
+                // the next rewind replay a half-built restore.
+                YuanTimeRewindEvents.clearPendingPlayback();
                 YuanTimeRewindServerState.endPlayback();
                 YuanTimeRewindServerState.release();
             }

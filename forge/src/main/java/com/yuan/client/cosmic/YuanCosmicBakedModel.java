@@ -215,7 +215,12 @@ public final class YuanCosmicBakedModel implements BakedModel {
     }
 
     public static void renderAllPendingItems(float partialTicks, PoseStack worldPoseStack) {
-        if (PENDING_RENDERS.isEmpty()) {
+        // Swap the queue out before anything else: entries collected while this drains (items
+        // rendered later in the same frame) belong to the next drain, and nothing may be left behind
+        // when there is no level, or the queue grows unbounded across menus and loading screens.
+        List<PendingRender> pending = new ArrayList<>(PENDING_RENDERS);
+        PENDING_RENDERS.clear();
+        if (pending.isEmpty()) {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
@@ -225,7 +230,7 @@ public final class YuanCosmicBakedModel implements BakedModel {
         MultiBufferSource.BufferSource bufferSource = mc.renderBuffers().bufferSource();
         List<PendingRender> firstPersonItems = new ArrayList<>();
         List<PendingRender> otherItems = new ArrayList<>();
-        for (PendingRender data : PENDING_RENDERS) {
+        for (PendingRender data : pending) {
             if (data.context() == ItemDisplayContext.FIRST_PERSON_LEFT_HAND
                     || data.context() == ItemDisplayContext.FIRST_PERSON_RIGHT_HAND) {
                 firstPersonItems.add(data);
@@ -240,7 +245,6 @@ public final class YuanCosmicBakedModel implements BakedModel {
             RenderSystem.clear(256, Minecraft.ON_OSX);
             renderSingleItem(data, bufferSource);
         }
-        PENDING_RENDERS.clear();
     }
 
     private static void renderSingleItem(PendingRender data, MultiBufferSource.BufferSource bufferSource) {

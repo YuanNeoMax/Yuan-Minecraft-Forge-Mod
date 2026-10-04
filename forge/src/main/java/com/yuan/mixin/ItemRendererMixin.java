@@ -22,15 +22,19 @@ public abstract class ItemRendererMixin {
         if (model instanceof YuanCosmicBakedModel) {
             ci.cancel();
             pose.pushPose();
-            ForgeHooksClient.handleCameraTransforms(pose, model, context, leftHand);
-            pose.translate(-0.5, -0.5, -0.5);
-            YuanCosmicBakedModel cosmicModel = (YuanCosmicBakedModel) model;
-            if (YuanIris.isShaderPackActive() && context != ItemDisplayContext.GUI) {
-                cosmicModel.collectData(stack, context, leftHand, pose, buffers, light, overlay);
-            } else {
-                cosmicModel.renderItem(stack, context, pose, buffers, light, overlay);
+            try {
+                ForgeHooksClient.handleCameraTransforms(pose, model, context, leftHand);
+                pose.translate(-0.5, -0.5, -0.5);
+                YuanCosmicBakedModel cosmicModel = (YuanCosmicBakedModel) model;
+                // collectData copies the matrices it needs, so popping below is safe for the deferred path.
+                if (YuanIris.isShaderPackActive() && context != ItemDisplayContext.GUI) {
+                    cosmicModel.collectData(stack, context, leftHand, pose, buffers, light, overlay);
+                } else {
+                    cosmicModel.renderItem(stack, context, pose, buffers, light, overlay);
+                }
+            } finally {
+                pose.popPose();
             }
-            pose.popPose();
         }
     }
 }
