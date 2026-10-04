@@ -43,6 +43,9 @@ public final class YuanSpaceSlashRender {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
+        if (mc.level != null) {
+            YuanPhotonSlashBridge.playRain(mc.level, new Vec3(hitX, hitY, hitZ));
+        }
         if ((YuanIris.isShaderPackActive() || ModList.get().isLoaded("oculus")) && mc.level != null) {
             YuanSpaceSlashEntity slashEntity =
                     new YuanSpaceSlashEntity(Yuan.SPACE_SLASH_ENTITY.get(), mc.level);

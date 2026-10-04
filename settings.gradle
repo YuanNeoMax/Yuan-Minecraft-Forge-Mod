@@ -19,6 +19,12 @@ dependencyResolutionManagement {
 		maven { url = 'https://api.modrinth.com/maven' }
 		maven { url = 'https://maven.minecraftforge.net/' }
 
+		// Photon VFX（FG 的 deobf 管线从全局仓库集合解析，项目级仓库它看不到）
+		maven {
+			url = 'https://maven.firstdark.dev/snapshots'
+			content { includeGroup 'com.lowdragmc.photon'; includeGroup 'com.lowdragmc.ldlib' }
+		}
+
 		// 仅从官方仓库解析 Forge 组件，避免无意义的回退请求
 		exclusiveContent {
 			forRepository {

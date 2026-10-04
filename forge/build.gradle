@@ -166,11 +166,15 @@ dependencies {
         jarJar.ranged(it, "[0.3.5,)")
     }
 
-    // Photon VFX（空间斩·斩击雨）：以嵌套模组随 -all.jar 分发，它自己再内嵌 LDLib 与 MixinExtras。
+    // Photon VFX（空间斩·斩击雨）：生产环境以嵌套模组随 -all.jar 分发（SRG 原始 jar，FG6 jarJar 配置），
+    // 编译与 dev 运行期用 fg.deobf 的官方映射版。分属不同 configuration，两个版本号不会互相冲突。
     // 许可 CC BY-NC-SA 4.0，见 THIRD_PARTY_NOTICES.md；不得解开合并，必须保持嵌套模组形态。
     // embeddium/oculus 是 Photon 的可选 shader 集成依赖，实例里已有，不参与解析。
-    implementation(jarJar("com.lowdragmc.photon:photon-forge-1.20.1:1.1.17")) {
-        jarJar.ranged(it, "[1.1.17,1.2)")
+    implementation fg.deobf("com.lowdragmc.photon:photon-forge-1.20.1:1.1.17") {
+        exclude group: "org.embeddedt"
+        exclude group: "maven.modrinth"
+    }
+    jarJar("com.lowdragmc.photon:photon-forge-1.20.1:[1.1.17,1.2)") {
         exclude group: "org.embeddedt"
         exclude group: "maven.modrinth"
     }
