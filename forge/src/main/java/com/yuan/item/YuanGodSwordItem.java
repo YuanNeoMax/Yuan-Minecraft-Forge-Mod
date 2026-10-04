@@ -83,6 +83,9 @@ public class YuanGodSwordItem extends SwordItem {
             YuanTimeStopServerState.resetFreezeDefaults();
         }
         YuanTimeStop.setIsTimeStop(next);
+        if (next && config.soundEnabled) {
+            YuanTimeStop.playStartSound(player);
+        }
         YuanTimeStopShaders.post();
         if (config.showMessage) {
             player.displayClientMessage(

@@ -645,7 +645,6 @@ private fun ComposeTestContent(
         var soundEnabled by remember { mutableStateOf(initial.soundEnabled) }
         var cooldown by remember { mutableStateOf(initial.cooldown) }
         var soundVolume by remember { mutableStateOf(initial.soundVolume) }
-        var soundLoop by remember { mutableStateOf(initial.soundLoop) }
         var particleAlpha by remember { mutableStateOf(initial.particleAlpha) }
         var particleCount by remember { mutableStateOf(initial.particleCount) }
         var particleSpin by remember { mutableStateOf(initial.particleSpin) }
@@ -806,7 +805,6 @@ private fun ComposeTestContent(
                 "grayScreen" -> grayScreen = !grayScreen
                 "grayAnimate" -> grayAnimate = !grayAnimate
                 "soundEnabled" -> soundEnabled = !soundEnabled
-                "soundLoop" -> soundLoop = !soundLoop
                 "freezeSelf" -> freezeSelf = !freezeSelf
                 "freezeEntities" -> freezeEntities = !freezeEntities
                 "freezeBlocks" -> freezeBlocks = !freezeBlocks
@@ -1095,7 +1093,6 @@ private fun ComposeTestContent(
             soundEnabled = soundEnabled,
             cooldown = cooldown,
             soundVolume = soundVolume,
-            soundLoop = soundLoop,
             particleAlpha = particleAlpha,
             particleCount = particleCount,
             particleSpin = particleSpin,
@@ -1268,7 +1265,6 @@ private fun ComposeTestContent(
             soundEnabled = s.soundEnabled
             cooldown = s.cooldown
             soundVolume = s.soundVolume
-            soundLoop = s.soundLoop
             particleAlpha = s.particleAlpha
             particleCount = s.particleCount
             particleSpin = s.particleSpin
@@ -1688,7 +1684,6 @@ private fun ComposeTestContent(
             soundEnabled = defaults.soundEnabled
             cooldown = defaults.cooldown
             soundVolume = defaults.soundVolume
-            soundLoop = defaults.soundLoop
             particleAlpha = defaults.particleAlpha
             particleCount = defaults.particleCount
             particleSpin = defaults.particleSpin
@@ -1811,7 +1806,7 @@ private fun ComposeTestContent(
                             startAnim, endAnim, startDuration, endDuration,
                             ballColor, ballColorCustom, customColor,
                             particleSize, stopDuration, triggerMode, soundEnabled, cooldown,
-                            soundVolume, soundLoop, particleAlpha, particleCount, particleSpin,
+                            soundVolume, particleAlpha, particleCount, particleSpin,
                             freezeSelf, stopRadius, freezeEntities, freezeBlocks, freezeFluids,
                             freezeBossAI, showMessage, grayStyle,
                             presetSlot, ::loadPreset, ::savePreset,
@@ -1907,7 +1902,6 @@ private data class V9State(
     val soundEnabled: Boolean = true,
     val cooldown: Int = 30,
     val soundVolume: Float = 1.0f,
-    val soundLoop: Boolean = false,
     val particleAlpha: Float = 0.5f,
     val particleCount: Int = 1,
     val particleSpin: Float = 0.3f,
@@ -2076,7 +2070,6 @@ private fun v9StateOf(config: YuanGodSwordConfig): V9State = V9State(
     soundEnabled = config.soundEnabled,
     cooldown = config.cooldown,
     soundVolume = config.soundVolume,
-    soundLoop = config.soundLoop,
     particleAlpha = config.particleAlpha,
     particleCount = config.particleCount,
     particleSpin = config.particleSpin,
@@ -2245,7 +2238,6 @@ private fun V9State.toConfig(): YuanGodSwordConfig = YuanGodSwordConfig().also {
     it.soundEnabled = soundEnabled
     it.cooldown = cooldown
     it.soundVolume = soundVolume
-    it.soundLoop = soundLoop
     it.particleAlpha = particleAlpha
     it.particleCount = particleCount
     it.particleSpin = particleSpin
@@ -2438,10 +2430,9 @@ private val v9Sections = listOf(
         V9Row("grayAnimate", "黑白随时间变化", "开启后饱和度脉动", 0, "画面", "后处理滤镜强度。"),
         V9Row("grayStyle", "黑白滤镜", "纯黑白 / 复古 / 暗角", 1, "画面", "后处理滤镜强度。")
     )),
-    V9Section("音效", "时停音效与循环。", listOf(
-        V9Row("soundEnabled", "时停音效", "启动时播放时停音效", 0, "音效", "时停音效与循环。"),
-        V9Row("soundVolume", "音效音量", "0 至 100%", 2, "音效", "时停音效与循环。"),
-        V9Row("soundLoop", "音效循环", "时停期间循环播放", 0, "音效", "时停音效与循环。")
+    V9Section("音效", "时停音效。", listOf(
+        V9Row("soundEnabled", "时停音效", "启动时播放时停音效", 0, "音效", "时停音效。"),
+        V9Row("soundVolume", "音效音量", "0 至 100%", 2, "音效", "时停音效。")
     )),
     V9Section("光球", "光球外观与粒子效果。", listOf(
         V9Row("particleSize", "光球大小", "0.4 至 3.0", 2, "光球", "光球外观与粒子效果。"),
@@ -2728,7 +2719,7 @@ private fun V9Center(
     startAnim: Int, endAnim: Int, startDuration: Float, endDuration: Float,
     ballColor: Int, ballColorCustom: Boolean, customColor: Int,
     particleSize: Float, stopDuration: Float, triggerMode: Int, soundEnabled: Boolean, cooldown: Int,
-    soundVolume: Float, soundLoop: Boolean, particleAlpha: Float, particleCount: Int, particleSpin: Float,
+    soundVolume: Float, particleAlpha: Float, particleCount: Int, particleSpin: Float,
     freezeSelf: Boolean, stopRadius: Float, freezeEntities: Boolean, freezeBlocks: Boolean,
     freezeFluids: Boolean, freezeBossAI: Boolean, showMessage: Boolean, grayStyle: Int,
     presetSlot: Int, onPresetLoad: (Int) -> Unit, onPresetSave: () -> Unit,
@@ -2850,7 +2841,7 @@ private fun V9Center(
                         row.name, row.desc,
                         switchValue(
                             row.id, enabled, invulnerable, grayScreen, grayAnimate,
-                            soundEnabled, soundLoop, freezeSelf, freezeEntities,
+                            soundEnabled, freezeSelf, freezeEntities,
                             freezeBlocks, freezeFluids, freezeBossAI, showMessage
                         )
                     ) {
@@ -2936,7 +2927,6 @@ private fun switchValue(
     grayScreen: Boolean,
     grayAnimate: Boolean,
     soundEnabled: Boolean,
-    soundLoop: Boolean,
     freezeSelf: Boolean,
     freezeEntities: Boolean,
     freezeBlocks: Boolean,
@@ -2949,7 +2939,6 @@ private fun switchValue(
     "grayScreen" -> grayScreen
     "grayAnimate" -> grayAnimate
     "soundEnabled" -> soundEnabled
-    "soundLoop" -> soundLoop
     "freezeSelf" -> freezeSelf
     "freezeEntities" -> freezeEntities
     "freezeBlocks" -> freezeBlocks

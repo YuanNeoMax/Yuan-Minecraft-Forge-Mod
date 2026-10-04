@@ -157,11 +157,17 @@ public final class YuanTimeStopCheck {
         for (String name : new String[]{
                 "grayStrength", "grayAnimate", "ballColorCustom", "customColor",
                 "particleSize", "stopDuration", "triggerMode", "soundEnabled", "cooldown",
-                "soundVolume", "soundLoop", "particleAlpha", "particleCount", "particleSpin",
+                "soundVolume", "particleAlpha", "particleCount", "particleSpin",
                 "freezeSelf", "stopRadius", "freezeEntities", "freezeBlocks", "freezeFluids",
                 "freezeBossAI", "showMessage", "grayStyle"}) {
             assert swordConfig.contains(name) : name + " must be a per-sword config field";
         }
+        assert !swordConfig.contains("soundLoop")
+                : "the sound loop option was removed and must not survive as an inert key";
+        String godSwordTrigger = Files.readString(Path.of("src/main/java/com/yuan/item/YuanGodSwordItem.java"));
+        assert godSwordTrigger.indexOf("YuanTimeStop.setIsTimeStop(next)")
+                < godSwordTrigger.indexOf("YuanTimeStop.playStartSound(player)")
+                : "the start sting must be played after the engine pause, or it stays suspended until the stop ends";
         String render = Files.readString(Path.of("src/main/java/com/yuan/timestop/render/YuanTimeStopRender.java"));
         assert render.contains("isAlive()")
                 : "timestop rendering must skip expired particles";

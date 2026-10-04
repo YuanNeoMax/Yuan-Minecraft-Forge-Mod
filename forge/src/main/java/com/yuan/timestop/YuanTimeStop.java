@@ -134,9 +134,6 @@ public final class YuanTimeStop {
 
     public static void abs(final Player player) {
         if (!get()) {
-            if (activeConfig.soundEnabled) {
-                playStartSound(player);
-            }
             if (YuanTimeStopConfig.specialShader) {
                 float[] rgb = activeConfig.ballColorCustom
                         ? rgbFromInt(activeConfig.customColor)
@@ -258,7 +255,12 @@ public final class YuanTimeStop {
         }
     }
 
-    private static void playStartSound(Player player) {
+    /**
+     * Must be called after setIsTimeStop(true): SoundEngine.pause() only pauses the channels that
+     * already exist, so a sting started afterwards plays over the frozen world instead of being
+     * suspended until the stop ends.
+     */
+    public static void playStartSound(Player player) {
         player.playSound(YuanTimeStopSounds.STOP.get(), activeConfig.soundVolume, 1.0f);
     }
 

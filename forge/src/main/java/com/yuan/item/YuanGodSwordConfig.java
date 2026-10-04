@@ -31,7 +31,6 @@ public final class YuanGodSwordConfig {
     public boolean soundEnabled = true;
     public int cooldown = 30;
     public float soundVolume = 1.0f;
-    public boolean soundLoop = false;
     public float particleAlpha = 0.5f;
     public int particleCount = 1;
     public float particleSpin = 0.3f;
@@ -210,7 +209,6 @@ public final class YuanGodSwordConfig {
         soundEnabled = true;
         cooldown = 30;
         soundVolume = 1.0f;
-        soundLoop = false;
         particleAlpha = 0.5f;
         particleCount = 1;
         particleSpin = 0.3f;
@@ -379,7 +377,6 @@ public final class YuanGodSwordConfig {
         soundEnabled = other.soundEnabled;
         cooldown = other.cooldown;
         soundVolume = other.soundVolume;
-        soundLoop = other.soundLoop;
         particleAlpha = other.particleAlpha;
         particleCount = other.particleCount;
         particleSpin = other.particleSpin;
@@ -548,7 +545,6 @@ public final class YuanGodSwordConfig {
                 && soundEnabled == other.soundEnabled
                 && cooldown == other.cooldown
                 && soundVolume == other.soundVolume
-                && soundLoop == other.soundLoop
                 && particleAlpha == other.particleAlpha
                 && particleCount == other.particleCount
                 && particleSpin == other.particleSpin
@@ -723,7 +719,6 @@ public final class YuanGodSwordConfig {
         if (tag.contains("soundEnabled")) soundEnabled = tag.getBoolean("soundEnabled");
         if (tag.contains("cooldown")) cooldown = tag.getInt("cooldown");
         if (tag.contains("soundVolume")) soundVolume = clamp(tag.getFloat("soundVolume"), 0f, 1f);
-        if (tag.contains("soundLoop")) soundLoop = tag.getBoolean("soundLoop");
         if (tag.contains("particleAlpha")) particleAlpha = clamp(tag.getFloat("particleAlpha"), 0.1f, 1f);
         if (tag.contains("particleCount")) particleCount = tag.getInt("particleCount");
         if (tag.contains("particleSpin")) particleSpin = clamp(tag.getFloat("particleSpin"), 0f, 3f);
@@ -909,7 +904,6 @@ public final class YuanGodSwordConfig {
         tag.putBoolean("soundEnabled", soundEnabled);
         tag.putInt("cooldown", cooldown);
         tag.putFloat("soundVolume", soundVolume);
-        tag.putBoolean("soundLoop", soundLoop);
         tag.putFloat("particleAlpha", particleAlpha);
         tag.putInt("particleCount", particleCount);
         tag.putFloat("particleSpin", particleSpin);
