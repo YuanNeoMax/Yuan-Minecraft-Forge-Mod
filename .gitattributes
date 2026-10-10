@@ -1,4 +1,11 @@
 * text=auto
 *.java text eol=lf
 *.kt text eol=lf
+# JSON resources ship inside the jar, so their bytes are part of the artifact.
+# Without this, git checks them out as CRLF on Windows and the same sources build
+# a jar with a different SHA every time the working copy is re-checked-out -- which
+# makes "did this build actually change?" unanswerable from the hash alone.
+# The index already stores these as LF (text=auto normalised them), so pinning the
+# working copy to LF changes no tracked content.
+*.json text eol=lf
 native/live2d/** text eol=lf

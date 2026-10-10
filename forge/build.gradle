@@ -202,6 +202,24 @@ tasks.named('jar', Jar).configure {
   finalizedBy 'reobfJar'
 }
 
+// Make the shipped jar reproducible: same sources -> same bytes -> same SHA-256.
+//
+// Why this matters here: scripts/deploy_jar.ps1 asserts the deployed SHA differs
+// from the previous deployment ("did this build actually change?"). A zip stores a
+// timestamp per entry, so without this the hash changes on every rebuild even when
+// nothing changed, and that assertion carries no information.
+//
+// It also surfaced a real defect: resource .json files were being checked out as
+// CRLF while the index held LF, so the bytes packed into the jar depended on the
+// state of the working copy. .gitattributes now pins *.json to eol=lf.
+//
+// preserveFileTimestamps=false pins every entry to a fixed epoch; reproducibleFileOrder
+// sorts entries so directory traversal order cannot vary either.
+tasks.withType(AbstractArchiveTask).configureEach {
+  preserveFileTimestamps = false
+  reproducibleFileOrder = true
+}
+
 sourceSets {
     test {
         compileClasspath += sourceSets.main.output
