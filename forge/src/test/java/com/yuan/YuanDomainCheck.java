@@ -9,8 +9,8 @@ import java.nio.file.Path;
  *
  * <p>Mixes source assertions with a few direct calls into the mesh builder. The source assertions
  * pin the contracts that a later edit could silently break -- packet field order, uniform wiring, the
- * camera-relative convention -- and the direct calls pin the numeric behaviour that has no other
- * witness.
+ * camera-relative convention, the submission path -- and the direct calls pin the numeric behaviour
+ * that has no other witness.
  */
 public final class YuanDomainCheck {
 
@@ -27,12 +27,12 @@ public final class YuanDomainCheck {
                 "src/main/java/com/yuan/domain/render/YuanDomainShaders.java"));
         String render = Files.readString(Path.of(
                 "src/main/java/com/yuan/domain/render/YuanDomainRender.java"));
+        String state = Files.readString(Path.of(
+                "src/main/java/com/yuan/domain/render/YuanDomainRenderState.java"));
         String terrain = Files.readString(Path.of(
                 "src/main/java/com/yuan/domain/render/YuanDomainTerrain.java"));
         String mesh = Files.readString(Path.of(
                 "src/main/java/com/yuan/domain/render/YuanDomainFloorMesh.java"));
-        String types = Files.readString(Path.of(
-                "src/main/java/com/yuan/domain/render/YuanDomainRenderTypes.java"));
         String vsh = Files.readString(Path.of(
                 "src/main/resources/assets/yuan/shaders/core/domain_starfield.vsh"));
         String fsh = Files.readString(Path.of(
@@ -95,14 +95,59 @@ public final class YuanDomainCheck {
         assert render.contains("findHolder") && render.contains("level.players()")
                 : "holder position must be resolved from the local player list; Level.getPlayerByUUID "
                         + "is defined in terms of the server's player list and is wrong on a client";
+
+        // ---- the submission path -------------------------------------------------
+        // The first version wrapped the floor in a custom RenderType drawn through the shared buffer
+        // source. Geometry was submitted and uniforms landed -- both confirmed in the log -- and
+        // nothing reached the screen. Every other world-space renderer in this project that owns a
+        // custom shader falls back to a vanilla shader when a shader pack is present; this was the
+        // only one with no fallback and no precedent. The floor is now submitted directly: the
+        // program is selected explicitly, the GL state is set explicitly, and the geometry goes
+        // through a private BufferBuilder into a VertexBuffer that is drawn with the matrices and
+        // program that are actually current. These assertions exist so a later edit cannot quietly
+        // reintroduce the layer that did not work.
+        assert !render.contains("getBuffer(")
+                : "the floor must not go back through MultiBufferSource.getBuffer";
+        assert !render.contains("endBatch(")
+                : "the floor must not go back through MultiBufferSource.endBatch";
+        assert !render.contains("YuanDomainRenderTypes")
+                : "the floor must not depend on the removed custom RenderType";
+        assert render.contains("RenderSystem.setShader")
+                : "the submission must select the program explicitly";
+        assert render.contains("getShader()")
+                : "the submission must read back the selected program; drawing with a null program "
+                        + "would submit geometry against whatever was bound";
+        assert render.contains("new VertexBuffer(") && render.contains("VertexBuffer.Usage.DYNAMIC")
+                : "the floor needs its own GPU buffer, re-uploaded each frame as it follows terrain";
+        assert render.contains("upload(") && render.contains("drawWithShader(")
+                : "the geometry must be uploaded to the buffer and drawn with the current matrices";
+        assert render.contains("RenderSystem.getModelViewMatrix()")
+                && render.contains("RenderSystem.getProjectionMatrix()")
+                : "drawWithShader needs the model-view and projection matrices that are current; "
+                        + "passing anything else draws the mesh somewhere off screen";
         assert !render.contains("starfieldShader.apply()")
                 : "the render path must NOT call apply() itself: it uploads to whatever program is "
                         + "bound at that moment and clears CCUniform's dirty flag, after which the real "
                         + "apply() skips the upload and the shader keeps its json defaults";
-        assert types.contains("TRANSLUCENT_TRANSPARENCY") && types.contains("LEQUAL_DEPTH_TEST")
-                : "the floor needs a real alpha blend and a depth test; an additive layer cannot darken";
-        assert types.contains("NO_CULL")
+
+        // ---- GL state ------------------------------------------------------------
+        // The state shards used to arrange this. It is explicit now, next to the draw that needs it,
+        // and it is undone afterwards -- otherwise the rest of the frame renders with blending or
+        // depth writes left in the wrong state.
+        assert state.contains("enableBlend") && state.contains("defaultBlendFunc")
+                : "the floor needs a real alpha blend; an additive layer cannot darken anything";
+        assert state.contains("disableCull")
                 : "the terrain-following mesh folds on steep ground, so culling must be off";
+        assert state.contains("depthMask(false)")
+                : "the floor must not write depth, or it would occlude the sky and later passes";
+        assert state.contains("depthFunc") && state.contains("GL_LEQUAL")
+                : "the floor must be depth-tested against the terrain it lies on";
+        assert render.contains("YuanDomainRenderState.apply()")
+                && render.contains("YuanDomainRenderState.restore()")
+                : "the GL state must be both applied and restored around the draw";
+        assert render.contains("finally")
+                : "the restore must run even if the draw throws, or the frame is left in a broken "
+                        + "blend/depth state";
 
         // ---- shader wiring ------------------------------------------------------
         assert shaders.contains("onApply")
@@ -145,19 +190,22 @@ public final class YuanDomainCheck {
                     : "radius " + r + " would emit " + quads + " quads, past the budget";
         }
 
-        // Worst-case vertices at the largest radius must fit the render type's buffer, or the mesh
-        // flushes repeatedly mid-draw.
+        // Worst-case vertices at the largest radius must fit the geometry buffer, or the builder
+        // reallocates mid-mesh every frame.
         double maxStep = YuanDomainFloorMesh.stepFor(128.0f);
         int maxSpan = (int) Math.ceil(128.0 / maxStep) + 1;
         int maxQuads = (maxSpan * 2) * (maxSpan * 2);
         int maxVerts = maxQuads * YuanDomainFloorMesh.vertsPerQuad();
-        assert types.contains("65536")
-                : "starfield buffer must be sized above the worst-case vertex count (" + maxVerts + ")";
-        assert maxVerts < 65536
-                : "worst-case vertex count " + maxVerts + " exceeds the declared buffer";
-
         assert YuanDomainFloorMesh.vertsPerQuad() == 6
                 : "each quad is two triangles, so six vertices";
+        // POSITION_COLOR_TEX is position (3 floats), colour (4 unsigned bytes) and UV0 (2 floats).
+        int vertexBytes = 3 * 4 + 4 + 2 * 4;
+        long worstCaseBytes = (long) maxVerts * vertexBytes;
+        assert render.contains("1 << 21")
+                : "the geometry buffer must stay declared as a named size, not a bare literal";
+        assert worstCaseBytes < (1L << 21)
+                : "worst-case geometry " + worstCaseBytes + " bytes at " + maxVerts
+                        + " vertices exceeds the declared 2 MB buffer";
 
         System.out.println("YuanDomainCheck OK");
     }
