@@ -80,9 +80,23 @@ public final class YuanDomainShaders {
                     // Confirms the shader compiled. A GLSL error here fails at runtime, not at
                     // build time, so this line is the difference between a silent no-show and a
                     // diagnosable one.
-                    LOGGER.info("domain starfield shader registered");
+                    //
+                    // Also reports whether getUniform() actually resolved. CCShaderInstance
+                    // overrides parseUniformNode and only adds to the `uniforms` list, while
+                    // getUniform() reads the separate `uniformMap`; if that map is never filled,
+                    // every lookup returns null, the push below silently skips every uniform, and
+                    // the shader runs on its json defaults. Those defaults must therefore be usable
+                    // values, not zeros -- domainIntensity defaults to 1.0 for exactly that reason.
+                    LOGGER.info("domain starfield shader registered (uniforms resolved: time={} radius={} "
+                                    + "fade={} seed={} intensity={} base={} star={} core={})",
+                            uTime != null, uRadius != null, uFade != null, uSeed != null,
+                            uIntensity != null, uColorBase != null, uColorStar != null,
+                            uColorCore != null);
                 });
     }
+
+    /** Guards the one-shot uniform push report. Temporary diagnostic. */
+    private static boolean tracedPush;
 
     private static void pushUniforms() {
         if (uTime != null) uTime.set(time);
@@ -93,6 +107,17 @@ public final class YuanDomainShaders {
         if (uColorBase != null) uColorBase.set(COLOR_BASE);
         if (uColorStar != null) uColorStar.set(COLOR_STAR);
         if (uColorCore != null) uColorCore.set(COLOR_CORE);
+
+        // Temporary: reports the first time the uniforms are actually written, with the values that
+        // reach the GPU. If the floor is still invisible, this line separates "the shader ran with
+        // intensity 0" from "the shader never ran at all". Remove once the floor is confirmed.
+        if (!tracedPush) {
+            tracedPush = true;
+            LOGGER.info("domain trace: pushUniforms ran, intensity={} radius={} fade={} "
+                            + "(null slots: time={} radius={} fade={} seed={} intensity={})",
+                    intensity, radius, fade,
+                    uTime == null, uRadius == null, uFade == null, uSeed == null, uIntensity == null);
+        }
     }
 
     /**

@@ -92,8 +92,13 @@ public final class YuanDomainCheck {
                 : "the floor must draw at AFTER_PARTICLES like the other world-space effects";
         assert render.contains("getMainCamera().getPosition()")
                 : "the floor must be positioned relative to the camera";
-        assert render.contains("getPlayerByUUID")
-                : "holder position must be resolved from the local entity, not a stale packet value";
+        assert render.contains("findHolder") && render.contains("level.players()")
+                : "holder position must be resolved from the local player list; Level.getPlayerByUUID "
+                        + "is defined in terms of the server's player list and is wrong on a client";
+        assert !render.contains("starfieldShader.apply()")
+                : "the render path must NOT call apply() itself: it uploads to whatever program is "
+                        + "bound at that moment and clears CCUniform's dirty flag, after which the real "
+                        + "apply() skips the upload and the shader keeps its json defaults";
         assert types.contains("TRANSLUCENT_TRANSPARENCY") && types.contains("LEQUAL_DEPTH_TEST")
                 : "the floor needs a real alpha blend and a depth test; an additive layer cannot darken";
         assert types.contains("NO_CULL")
@@ -114,6 +119,13 @@ public final class YuanDomainCheck {
                 : "the centre is carried per-vertex, so a centre uniform would be a second source of truth";
         assert json.contains("domain_starfield") && json.contains("\"Position\"")
                 : "shader json must name both stages and declare the vertex attributes";
+        // The json defaults are the values the shader runs with whenever the uniform push does not
+        // land. A default of 0 for domainIntensity discards every fragment and the floor silently
+        // disappears -- with the geometry still submitted and nothing in the log. The defaults must
+        // therefore be a usable image on their own.
+        assert json.contains("\"name\": \"domainIntensity\", \"type\": \"float\", \"count\": 1, \"values\": [ 1.0 ]")
+                : "domainIntensity must default to 1.0, not 0.0: a zero default discards every "
+                        + "fragment if the uniform push ever fails, and the failure is invisible";
 
         // ---- numeric behaviour of the mesh builder ------------------------------
         // The grid step must grow with the radius, or a large domain explodes the vertex count.

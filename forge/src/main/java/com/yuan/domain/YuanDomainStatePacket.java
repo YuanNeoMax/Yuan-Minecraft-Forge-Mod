@@ -39,8 +39,12 @@ public class YuanDomainStatePacket {
     }
 
     public static void handle(YuanDomainStatePacket message, Supplier<NetworkEvent.Context> context) {
-        context.get().enqueueWork(() -> YuanDomainClient.apply(
-                message.holder, message.active, message.radius, message.starfield));
+        context.get().enqueueWork(() -> {
+            org.slf4j.LoggerFactory.getLogger("YuanDomainPacket").info(
+                    "state packet: holder={} active={} radius={} starfield={}",
+                    message.holder, message.active, message.radius, message.starfield);
+            YuanDomainClient.apply(message.holder, message.active, message.radius, message.starfield);
+        });
         context.get().setPacketHandled(true);
     }
 }
