@@ -175,9 +175,10 @@ public final class YuanDomainRender {
                 camera.x, camera.y, camera.z, cx, cz, radius);
 
         if (quads == 0) {
-            // Nothing to draw. end() must still be called to leave the builder out of its building
-            // state -- the next begin() throws "Already building!" otherwise -- but it returns null
-            // when no vertex was written, so the result cannot be dereferenced.
+            // Nothing to draw. end() must still be called, or the builder stays in its building
+            // state and the next begin() throws "Already building!". BufferBuilder offers two end
+            // variants and only one is guaranteed non-null, so the result is checked rather than
+            // dereferenced.
             RenderedBuffer empty = bb.end();
             if (empty != null) {
                 empty.release();
