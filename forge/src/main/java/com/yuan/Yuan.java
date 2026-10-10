@@ -1,6 +1,8 @@
 package com.yuan;
 
 import com.yuan.client.particle.YuanParticleTypes;
+import com.yuan.domain.YuanDomainRequestPacket;
+import com.yuan.domain.YuanDomainStatePacket;
 import com.yuan.network.ConfigSyncPacket;
 import com.yuan.network.YuanGodSwordConfigPacket;
 import com.yuan.network.ModeSwitchMessage;
@@ -189,6 +191,18 @@ public class Yuan {
                 YuanTimeRewindCancelPacket::decode,
                 YuanTimeRewindCancelPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
+
+        CHANNEL.registerMessage(16, YuanDomainRequestPacket.class,
+                YuanDomainRequestPacket::encode,
+                YuanDomainRequestPacket::decode,
+                YuanDomainRequestPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+
+        CHANNEL.registerMessage(17, YuanDomainStatePacket.class,
+                YuanDomainStatePacket::encode,
+                YuanDomainStatePacket::decode,
+                YuanDomainStatePacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     public void onBuildCreativeModeTabContents(BuildCreativeModeTabContentsEvent event) {

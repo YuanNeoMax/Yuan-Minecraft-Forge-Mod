@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.yuan.Yuan;
 import com.yuan.client.gui.YuanComposeTestScreen;
 import com.yuan.client.gui.YuanConfigScreen;
+import com.yuan.domain.YuanDomainRequestPacket;
 import com.yuan.event.YuanSwordEvents;
 import com.yuan.item.YuanConfig;
 import com.yuan.item.YuanGodSwordConfig;
@@ -43,11 +44,15 @@ public class YuanKeyBindings {
     public static final KeyMapping TRIGGER_REWIND = new KeyMapping(
         "key.yuan.rewind_trigger", KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_H, "key.categories.yuan");
 
+    public static final KeyMapping TRIGGER_DOMAIN = new KeyMapping(
+        "key.yuan.domain_trigger", KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, "key.categories.yuan");
+
     @SubscribeEvent
     public static void register(RegisterKeyMappingsEvent event) {
         event.register(OPEN_CONFIG);
         event.register(TRIGGER_TIMESTOP);
         event.register(TRIGGER_REWIND);
+        event.register(TRIGGER_DOMAIN);
     }
 
     @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
@@ -59,9 +64,11 @@ public class YuanKeyBindings {
             int configClicks = 0;
             int triggerClicks = 0;
             int rewindClicks = 0;
+            int domainClicks = 0;
             while (OPEN_CONFIG.consumeClick()) configClicks++;
             while (TRIGGER_TIMESTOP.consumeClick()) triggerClicks++;
             while (TRIGGER_REWIND.consumeClick()) rewindClicks++;
+            while (TRIGGER_DOMAIN.consumeClick()) domainClicks++;
             if (mc.player == null) return;
             // 进世界后预热 Compose/Skiko，避免首次打开界面卡 1 秒
             YuanComposeTestScreen.warmupIfNeeded();
@@ -72,6 +79,14 @@ public class YuanKeyBindings {
                     Yuan.CHANNEL.sendToServer(new YuanTimeRewindCancelPacket());
                 } else {
                     Yuan.CHANNEL.sendToServer(new YuanTimeRewindRequestPacket());
+                }
+                return;
+            }
+            if (mc.screen == null && domainClicks > 0) {
+                if (hasGodSwordInHand(mc.player)) {
+                    Yuan.CHANNEL.sendToServer(new YuanDomainRequestPacket());
+                } else {
+                    mc.player.displayClientMessage(Component.literal("§c✦ 展开领域需手持神剑"), true);
                 }
                 return;
             }
@@ -117,6 +132,11 @@ public class YuanKeyBindings {
                 if (stack.getItem() instanceof YuanGodSwordItem) return true;
             }
             return false;
+        }
+
+        private static boolean hasGodSwordInHand(Player player) {
+            return player.getMainHandItem().getItem() instanceof YuanGodSwordItem
+                    || player.getOffhandItem().getItem() instanceof YuanGodSwordItem;
         }
     }
 

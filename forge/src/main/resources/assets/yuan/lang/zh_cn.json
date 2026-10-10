@@ -14,6 +14,7 @@
   "key.yuan.config": "打开配置",
   "key.yuan.timestop_trigger": "触发时停",
   "key.yuan.rewind_trigger": "时间回溯",
+  "key.yuan.domain_trigger": "展开/收束领域",
   "tooltip.yuan.sword.1": "§c横扫之刃III - 攻击周围所有敌人",
   "tooltip.yuan.sword.2": "§6火焰附加I - 燃烧目标3秒",
   "tooltip.yuan.sword.3": "§e绝境爆发 - 低生命时获得力量I",

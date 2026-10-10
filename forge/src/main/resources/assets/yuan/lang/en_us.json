@@ -14,6 +14,7 @@
   "key.yuan.config": "Open Config",
   "key.yuan.timestop_trigger": "Trigger Time Stop",
   "key.yuan.rewind_trigger": "Time Rewind",
+  "key.yuan.domain_trigger": "Expand / Collapse Domain",
   "tooltip.yuan.sword.1": "§cSweeping Edge III - strikes all nearby foes",
   "tooltip.yuan.sword.2": "§6Fire Aspect I - burns targets for 3s",
   "tooltip.yuan.sword.3": "§eLow Health Desperation - Strength I at <25% HP",

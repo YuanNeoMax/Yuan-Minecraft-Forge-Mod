@@ -190,6 +190,9 @@ public final class YuanGodSwordConfig {
     public String uiSwitchTextOn = "On";
     public String uiSwitchTextOff = "Off";
 
+    // 领域半径同时决定：地面网格的真实截止、术式架尺寸、后处理强度衰减范围
+    public float domainRadius = 20f;
+
     public void reset() {
         enabled = true;
         invulnerable = true;
@@ -356,6 +359,7 @@ public final class YuanGodSwordConfig {
         uiSwitchTextColor = 0xFF78768D;
         uiSwitchTextOn = "On";
         uiSwitchTextOff = "Off";
+        domainRadius = 20f;
     }
 
     public void copyFrom(YuanGodSwordConfig other) {
@@ -524,6 +528,7 @@ public final class YuanGodSwordConfig {
         uiSwitchTextColor = other.uiSwitchTextColor;
         uiSwitchTextOn = other.uiSwitchTextOn;
         uiSwitchTextOff = other.uiSwitchTextOff;
+        domainRadius = other.domainRadius;
     }
 
     public boolean sameAs(YuanGodSwordConfig other) {
@@ -691,7 +696,8 @@ public final class YuanGodSwordConfig {
                 && uiSwitchTextKnob == other.uiSwitchTextKnob
                 && uiSwitchTextColor == other.uiSwitchTextColor
                 && uiSwitchTextOn.equals(other.uiSwitchTextOn)
-                && uiSwitchTextOff.equals(other.uiSwitchTextOff);
+                && uiSwitchTextOff.equals(other.uiSwitchTextOff)
+                && domainRadius == other.domainRadius;
     }
 
     public void read(ItemStack stack) {
@@ -866,6 +872,7 @@ public final class YuanGodSwordConfig {
         if (tag.contains("uiSwitchTextColor")) uiSwitchTextColor = tag.getInt("uiSwitchTextColor");
         if (tag.contains("uiSwitchTextOn")) uiSwitchTextOn = tag.getString("uiSwitchTextOn");
         if (tag.contains("uiSwitchTextOff")) uiSwitchTextOff = tag.getString("uiSwitchTextOff");
+        if (tag.contains("domainRadius")) domainRadius = clamp(tag.getFloat("domainRadius"), 4f, 128f);
         startAnim = Math.max(0, Math.min(2, startAnim));
         endAnim = Math.max(0, Math.min(1, endAnim));
         ballColor = Math.max(0, Math.min(7, ballColor));
@@ -1051,6 +1058,7 @@ public final class YuanGodSwordConfig {
         tag.putInt("uiSwitchTextColor", uiSwitchTextColor);
         tag.putString("uiSwitchTextOn", uiSwitchTextOn);
         tag.putString("uiSwitchTextOff", uiSwitchTextOff);
+        tag.putFloat("domainRadius", domainRadius);
     }
 
     public CompoundTag toTag() {

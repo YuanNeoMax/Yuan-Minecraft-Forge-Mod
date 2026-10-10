@@ -22,6 +22,12 @@ import net.minecraftforge.fml.common.Mod;
         value = Dist.CLIENT)
 public final class YuanSpaceSlashRender {
     private static final List<YuanSpaceSlashEffect> effects = new ArrayList<>();
+    /**
+     * Temporary while the Photon streak is being tuned against its reference: the legacy slash visual
+     * (entity path under Iris/Oculus, plus the fallback list) stays compiled but is not played. Flip
+     * back to true to restore it.
+     */
+    private static final boolean LEGACY_SLASH_VISIBLE = false;
     private static YuanRenderStateSnapshot capturedState;
     private static int clientEntityCounter;
 
@@ -44,15 +50,21 @@ public final class YuanSpaceSlashRender {
         }
         Minecraft mc = Minecraft.getInstance();
         if (mc.level != null) {
-            YuanPhotonSlashBridge.playRain(mc.level, new Vec3(hitX, hitY, hitZ));
+            // Same span the legacy blade uses, so the photon streak covers the same cut.
+            float slashLength = YuanSpaceSlashEffect.lengthFor(target) * params.lengthMult;
+            YuanPhotonSlashBridge.playRain(mc.level, target, new Vec3(hitX, hitY, hitZ), yaw, pitch, slashLength);
         }
-        if ((YuanIris.isShaderPackActive() || ModList.get().isLoaded("oculus")) && mc.level != null) {
+        if (LEGACY_SLASH_VISIBLE
+                && (YuanIris.isShaderPackActive() || ModList.get().isLoaded("oculus")) && mc.level != null) {
             YuanSpaceSlashEntity slashEntity =
                     new YuanSpaceSlashEntity(Yuan.SPACE_SLASH_ENTITY.get(), mc.level);
             slashEntity.setId(-200000 - (++clientEntityCounter));
             slashEntity.setPos(hitX, hitY, hitZ);
             slashEntity.initSlash(target, seed, yaw, pitch, roll, hitX, hitY, hitZ, params);
             mc.level.addEntity(slashEntity.getId(), slashEntity);
+            return;
+        }
+        if (!LEGACY_SLASH_VISIBLE) {
             return;
         }
         Vec3 offset = new Vec3(hitX, hitY, hitZ).subtract(target.position());

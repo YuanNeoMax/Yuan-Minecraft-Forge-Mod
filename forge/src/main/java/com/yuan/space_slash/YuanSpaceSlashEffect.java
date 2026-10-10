@@ -165,7 +165,7 @@ public final class YuanSpaceSlashEffect {
         return (float) Mth.clamp((double) elapsed / durationMs, 0.0D, 1.0D);
     }
 
-    private static float lengthFor(Entity entity) {
+    public static float lengthFor(Entity entity) {
         if (entity != null && !entity.isRemoved()) {
             return Math.max(1.1f, entity.getBbWidth() * 0.9f + entity.getBbHeight() * 0.7f);
         }

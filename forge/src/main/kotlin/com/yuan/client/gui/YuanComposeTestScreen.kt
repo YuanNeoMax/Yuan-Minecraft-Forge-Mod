@@ -22,6 +22,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -39,10 +40,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -50,11 +56,13 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
@@ -77,6 +85,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.key.Key as ComposeKey
 import androidx.compose.ui.input.key.KeyEvent as ComposeKeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -133,35 +142,158 @@ import java.awt.event.MouseWheelEvent as AwtMouseWheelEvent
 import java.nio.ByteBuffer
 import java.time.LocalDate
 
+/**
+ * Design tokens for this screen. Colors used to be 215 inline literals over 66 distinct values - nine
+ * near-duplicate dark surfaces and four near-duplicate greys - so nothing could be tuned globally.
+ * The surface scale collapses values that differ by at most a few units per channel.
+ *
+ * Text roles are checked against the surfaces they sit on: tertiary is #8A94A2 rather than the old
+ * #646D7B, which only reached 2.8:1 on inputs and 3.5:1 on panels (AA body text needs 4.5:1).
+ */
+private object Ui {
+    // surfaces, darkest to most raised
+    val surface0 = Color(0xFF0B0D11)      // window
+    val surface1 = Color(0xFF0F1217)      // panel base, sidebar bottom
+    val surface2 = Color(0xFF12151B)      // material surface
+    val surface3 = Color(0xFF1A1E26)      // cards, fields
+    val surface4 = Color(0xFF242A33)      // slider track / input idle
+    val surfaceHover = Color(0xFF2A2F38)
+    val surfaceActive = Color(0xFF323842)
+    val sunken = Color(0xFF0F1116)        // segmented container
+
+    // text
+    val textPrimary = Color(0xFFF2F4F8)
+    val textBody = Color(0xFFD7DCE5)
+    val textSecondary = Color(0xFF9AA2B0)
+    val textTertiary = Color(0xFF8A94A2)
+    val textOnAccent = Color(0xFF1B100C)
+
+    // accent (coral)
+    val accent = Color(0xFFFF7A5C)
+    val accentHover = Color(0xFFFFA08A)
+    val accentPressed = Color(0xFFE86848)
+    val accentBright = Color(0xFFFF8A6E)
+    val accentTint = Color(0x26FF7A5C)
+    val accentTintStrong = Color(0x2BFF7A5C)
+
+    // lines, overlays, shadows
+    val hairlineFaint = Color(0x14E9ECF2)
+    val hairlineSoft = Color(0x1FE9ECF2)
+    val hairline = Color(0x24E9ECF2)
+    val hairlineStrong = Color(0x38E9ECF2)
+    val borderQuiet = Color(0x14FFFFFF)
+    val borderDark = Color(0x1A000000)
+    val overlayRowHover = Color(0x04FFFFFF)
+    val overlayHover = Color(0x0FFFFFFF)
+    val overlayPressed = Color(0x1FFFFFFF)
+    val overlayFade = Color(0x0DFFFFFF)
+    val innerHighlight = Color(0x2EFFFFFF)
+    val innerHighlightStrong = Color(0x30FFFFFF)
+    val innerLine = Color(0x24FFFFFF)
+    val shadowSlight = Color(0x26000000)
+    val shadowMedium = Color(0x33000000)
+    val shadowWindow = Color(0x40000000)
+    val shadowStrong = Color(0x66000000)
+    val shadowAmbientSoft = Color(0xFF0E0E0E)
+    val shadowSpotWarm = Color(0x405F5E5E)
+    val scrim = Color(0x8C000000)
+    val scrollbar = Color(0x33E9ECF2)
+
+    // control hardware
+    val thumb = Color(0xFFF4F6FA)
+    val thumbEdge = Color(0xFF3A3F49)
+    val knobTop = Color(0xFFFFFFFF)
+    val knobBottom = Color(0xFFE6E9EF)
+    val knobEdge = Color(0xFFDEDEDE)
+    val knobOff = Color(0xFF9B9B9B)
+
+    // decorative spectrum used by the preview glow
+    val spectrum = listOf(Color(0xFFFF7A5C), Color(0xFF7C5CFF), Color(0xFF3DD6E8))
+}
+
 @OptIn(ExperimentalTextApi::class)
 private val cnFont: FontFamily = FontFamily("Microsoft YaHei")
 
-private data class V9UiPrefs(
-    val sliderHeight: Dp = 24.dp,
-    val sliderThumb: Dp = 18.dp,
-    val searchStyle: Int = 0,
-    val searchWidth: Dp = 200.dp,
-    val searchHeight: Dp = 40.dp,
-    val searchRadius: Dp = 20.dp,
-    val switchStyle: Int = 0,
-    val switchWidth: Dp = 62.dp,
-    val switchHeight: Dp = 28.dp,
-    val switchKnob: Dp = 22.dp,
-    val switchGradientA: Int = 0xFFF19AF3.toInt(),
-    val switchGradientB: Int = 0xFFF099B5.toInt(),
-    val switchTrackOff: Int = 0xFFD7D7D7.toInt(),
-    val switchSlideTrack: Int = 0xFFFFFFFF.toInt(),
-    val switchSlideOff: Int = 0xFFCCCCCC.toInt(),
-    val switchSlideOn: Int = 0xFF59D102.toInt(),
-    val switchTextTrackOff: Int = 0xFF05012C.toInt(),
-    val switchTextTrackOn: Int = 0xFFFFB500.toInt(),
-    val switchTextKnob: Int = 0xFFFFFFFF.toInt(),
-    val switchTextColor: Int = 0xFF78768D.toInt(),
-    val switchTextOn: String = "On",
-    val switchTextOff: String = "Off"
-)
+/**
+ * Live view over the holder's UI-preference fields. Reading a property subscribes only the row that
+ * asked for it; this used to be a data class built in the composition root, so changing any of the 22
+ * preferences recomposed the whole screen.
+ */
+private class V9UiPrefs(private val h: V9Holder = V9Holder(V9State())) {
+    val sliderHeight: Dp get() = when (h.uiSliderHeight) { 0 -> 20.dp; 2 -> 28.dp; else -> 24.dp }
+    val sliderThumb: Dp get() = when (h.uiSliderThumb) { 0 -> 16.dp; 2 -> 20.dp; else -> 18.dp }
+    val searchStyle: Int get() = h.uiSearchStyle
+    val searchWidth: Dp get() = h.uiSearchWidth.dp
+    val searchHeight: Dp get() = h.uiSearchHeight.dp
+    val searchRadius: Dp get() = h.uiSearchRadius.dp
+    val switchStyle: Int get() = h.uiSwitchStyle
+    val switchWidth: Dp get() = h.uiSwitchWidth.dp
+    val switchHeight: Dp get() = h.uiSwitchHeight.dp
+    val switchKnob: Dp get() = h.uiSwitchKnob.dp
+    val switchGradientA: Int get() = h.uiSwitchGradientA
+    val switchGradientB: Int get() = h.uiSwitchGradientB
+    val switchTrackOff: Int get() = h.uiSwitchTrackOff
+    val switchSlideTrack: Int get() = h.uiSwitchSlideTrack
+    val switchSlideOff: Int get() = h.uiSwitchSlideOff
+    val switchSlideOn: Int get() = h.uiSwitchSlideOn
+    val switchTextTrackOff: Int get() = h.uiSwitchTextTrackOff
+    val switchTextTrackOn: Int get() = h.uiSwitchTextTrackOn
+    val switchTextKnob: Int get() = h.uiSwitchTextKnob
+    val switchTextColor: Int get() = h.uiSwitchTextColor
+    val switchTextOn: String get() = h.uiSwitchTextOn
+    val switchTextOff: String get() = h.uiSwitchTextOff
+}
 
 private val LocalV9UiPrefs = compositionLocalOf { V9UiPrefs() }
+
+/**
+ * Every clickable in this screen passes indication = null, which silently threw away all press
+ * acknowledgement. These helpers put it back as colour and cursor changes only, so no layout bounds
+ * move and neighbouring rows never jitter.
+ */
+@Composable
+private fun isPressed(interaction: MutableInteractionSource): Boolean =
+    interaction.collectIsPressedAsState().value
+
+@OptIn(ExperimentalComposeUiApi::class)
+private fun Modifier.handCursor(): Modifier = pointerHoverIcon(PointerIcon.Hand)
+
+/**
+ * Scroll positions live above the panels so leaving a page and coming back restores where you were.
+ * A panel that is switched away simply stops composing; the registry keyed by name keeps its state.
+ */
+private val LocalPanelScrolls = compositionLocalOf<SnapshotStateMap<String, ScrollState>> {
+    mutableStateMapOf()
+}
+
+@Composable
+private fun rememberPanelScroll(key: String): ScrollState {
+    val registry = LocalPanelScrolls.current
+    return remember(key) { registry.getOrPut(key) { ScrollState(0) } }
+}
+
+@Composable
+private fun Modifier.panelScroll(key: String): Modifier {
+    val state = rememberPanelScroll(key)
+    return this.verticalScroll(state).thinScrollbar(state)
+}
+
+/**
+ * A 3px bar that only appears while the panel can actually scroll and is being moved, so long pages
+ * get a position cue without a permanent gutter.
+ */
+private fun Modifier.thinScrollbar(state: ScrollState): Modifier = drawBehind {
+    if (state.maxValue <= 0) return@drawBehind
+    val trackH = size.height
+    val thumbH = (trackH * trackH / (trackH + state.maxValue)).coerceAtLeast(24f)
+    val y = (state.value.toFloat() / state.maxValue) * (trackH - thumbH)
+    drawRoundRect(
+        color = Ui.scrollbar,
+        topLeft = Offset(size.width - 4f, y),
+        size = Size(3f, thumbH),
+        cornerRadius = CornerRadius(1.5f)
+    )
+}
 
 /**
  * Compose Multiplatform (Skiko) minimal canvas rendered straight into the MC
@@ -184,6 +316,10 @@ class YuanComposeTestScreen(private val stack: ItemStack) : Screen(Component.lit
     private val baseline = YuanGodSwordConfig().also { it.copyFrom(config) }
     private val openId = Companion.nextOpenId++
     private var previewBounds: Rect? = null
+
+    /** Mirrored from the composition so the vanilla ESC path can consult it. */
+    private val unsavedChanges = mutableStateOf(false)
+    private val confirmingClose = mutableStateOf(false)
 
     private val scale: Float
         get() = Minecraft.getInstance().window.guiScale.toFloat()
@@ -249,6 +385,9 @@ class YuanComposeTestScreen(private val stack: ItemStack) : Screen(Component.lit
                     initial = v9StateOf(config),
                     defaults = v9StateOf(YuanGodSwordConfig()),
                     onSave = ::save,
+                    onPreview = ::applyPreview,
+                    unsaved = unsavedChanges,
+                    confirmingClose = confirmingClose,
                     onStageBounds = ::setPreviewBounds,
                     onPresetSave = ::savePreset,
                     onPresetLoad = ::loadPreset
@@ -290,9 +429,14 @@ class YuanComposeTestScreen(private val stack: ItemStack) : Screen(Component.lit
      * on every G press.
      */
     override fun removed() {
+        restorePreview()
+        unsavedChanges.value = false
         closeSurfaceResources()
         super.removed()
     }
+
+    /** ESC must not silently discard edits: while something is un-saved it opens a confirm instead. */
+    override fun shouldCloseOnEsc(): Boolean = !unsavedChanges.value || confirmingClose.value
 
     private fun createScene(): ComposeScene =
         CanvasLayersComposeScene(
@@ -308,6 +452,28 @@ class YuanComposeTestScreen(private val stack: ItemStack) : Screen(Component.lit
         syncStackConfig()
         YuanTimeStop.startCooldown(0)
         YuanTimeStopServerState.startCooldown(0)
+    }
+
+    /**
+     * Live preview writes the config into the client's copy of the stack only. The world renderers read
+     * that same stack (YuanCosmicBakedModel, YuanSpaceSlashRender), so edits show up immediately while
+     * the server keeps the last saved state until 保存. write() only puts its own keys, so the preset
+     * list sharing this tag element is never touched.
+     */
+    private fun applyPreview(state: V9State) {
+        val updated = state.toConfig()
+        updated.write(stack)
+        config.copyFrom(updated)
+    }
+
+    /**
+     * Undo every un-saved preview. Unconditional on purpose: baseline is refreshed on each save, so
+     * restoring after a save writes the same values, while gating on the dirty flag would let a
+     * "cancel" (which clears it) leave previewed values sitting in the client copy.
+     */
+    private fun restorePreview() {
+        baseline.write(stack)
+        config.copyFrom(baseline)
     }
 
     /**
@@ -497,6 +663,11 @@ class YuanComposeTestScreen(private val stack: ItemStack) : Screen(Component.lit
     }
 
     override fun keyPressed(keyCode: Int, scanCode: Int, modifiers: Int): Boolean {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE && unsavedChanges.value && !confirmingClose.value) {
+            // Consume it: vanilla would close through shouldCloseOnEsc and drop the edits silently.
+            confirmingClose.value = true
+            return true
+        }
         composeScene?.sendKeyEvent(composeKeyEvent(AwtKeyEvent.KEY_PRESSED, glfwToAwtKeyCode(keyCode), AwtKeyEvent.CHAR_UNDEFINED))
         return super.keyPressed(keyCode, scanCode, modifiers)
     }
@@ -606,6 +777,518 @@ class YuanComposeTestScreen(private val stack: ItemStack) : Screen(Component.lit
     }
 }
 
+/**
+ * The live values behind the settings screen. Field names mirror {@link V9State} exactly so the
+ * panels keep reading `state.x`; the difference is that a read now subscribes only the row that
+ * made it, instead of the whole screen through a snapshot built during composition.
+ */
+private class V9Holder(initial: V9State) {
+    var enabled: Boolean by mutableStateOf(initial.enabled)
+    var invulnerable: Boolean by mutableStateOf(initial.invulnerable)
+    var grayScreen: Boolean by mutableStateOf(initial.grayScreen)
+    var grayStrength: Float by mutableStateOf(initial.grayStrength)
+    var grayAnimate: Boolean by mutableStateOf(initial.grayAnimate)
+    var startAnim: Int by mutableStateOf(initial.startAnim)
+    var endAnim: Int by mutableStateOf(initial.endAnim)
+    var startDuration: Float by mutableStateOf(initial.startDuration)
+    var endDuration: Float by mutableStateOf(initial.endDuration)
+    var ballColor: Int by mutableStateOf(initial.ballColor)
+    var ballColorCustom: Boolean by mutableStateOf(initial.ballColorCustom)
+    var customColor: Int by mutableStateOf(initial.customColor)
+    var particleSize: Float by mutableStateOf(initial.particleSize)
+    var stopDuration: Float by mutableStateOf(initial.stopDuration)
+    var triggerMode: Int by mutableStateOf(initial.triggerMode)
+    var soundEnabled: Boolean by mutableStateOf(initial.soundEnabled)
+    var cooldown: Int by mutableStateOf(initial.cooldown)
+    var soundVolume: Float by mutableStateOf(initial.soundVolume)
+    var particleAlpha: Float by mutableStateOf(initial.particleAlpha)
+    var particleCount: Int by mutableStateOf(initial.particleCount)
+    var particleSpin: Float by mutableStateOf(initial.particleSpin)
+    var freezeSelf: Boolean by mutableStateOf(initial.freezeSelf)
+    var stopRadius: Float by mutableStateOf(initial.stopRadius)
+    var freezeEntities: Boolean by mutableStateOf(initial.freezeEntities)
+    var freezeBlocks: Boolean by mutableStateOf(initial.freezeBlocks)
+    var freezeFluids: Boolean by mutableStateOf(initial.freezeFluids)
+    var freezeBossAI: Boolean by mutableStateOf(initial.freezeBossAI)
+    var showMessage: Boolean by mutableStateOf(initial.showMessage)
+    var grayStyle: Int by mutableStateOf(initial.grayStyle)
+    var slashEnabled: Boolean by mutableStateOf(initial.slashEnabled)
+    var slashDepthTest: Boolean by mutableStateOf(initial.slashDepthTest)
+    var slashRandomAngle: Boolean by mutableStateOf(initial.slashRandomAngle)
+    var slashGlow: Boolean by mutableStateOf(initial.slashGlow)
+    var slashDuration: Float by mutableStateOf(initial.slashDuration)
+    var slashLengthMult: Float by mutableStateOf(initial.slashLengthMult)
+    var slashWidthRatio: Float by mutableStateOf(initial.slashWidthRatio)
+    var slashThicknessRatio: Float by mutableStateOf(initial.slashThicknessRatio)
+    var slashTipFade: Float by mutableStateOf(initial.slashTipFade)
+    var slashStartScale: Float by mutableStateOf(initial.slashStartScale)
+    var slashEndScale: Float by mutableStateOf(initial.slashEndScale)
+    var slashCoreWidth: Float by mutableStateOf(initial.slashCoreWidth)
+    var slashCoreShade: Float by mutableStateOf(initial.slashCoreShade)
+    var slashEdgeWidth: Float by mutableStateOf(initial.slashEdgeWidth)
+    var slashEdgeBrightness: Float by mutableStateOf(initial.slashEdgeBrightness)
+    var slashGlowWidth: Float by mutableStateOf(initial.slashGlowWidth)
+    var slashGlowStrength: Float by mutableStateOf(initial.slashGlowStrength)
+    var slashNoiseStrength: Float by mutableStateOf(initial.slashNoiseStrength)
+    var slashSweepSpeed: Float by mutableStateOf(initial.slashSweepSpeed)
+    var slashSweepSoftness: Float by mutableStateOf(initial.slashSweepSoftness)
+    var slashHoldFraction: Float by mutableStateOf(initial.slashHoldFraction)
+    var slashFadeStart: Float by mutableStateOf(initial.slashFadeStart)
+    var slashFadeDuration: Float by mutableStateOf(initial.slashFadeDuration)
+    var slashSurfaceOffset: Float by mutableStateOf(initial.slashSurfaceOffset)
+    var slashRollRange: Float by mutableStateOf(initial.slashRollRange)
+    var slashCoreColor: Int by mutableStateOf(initial.slashCoreColor)
+    var slashEdgeColor: Int by mutableStateOf(initial.slashEdgeColor)
+    var slashGlowColor: Int by mutableStateOf(initial.slashGlowColor)
+    var renderStyle: Int by mutableStateOf(initial.renderStyle)
+    var silkColor0: Int by mutableStateOf(initial.silkColor0)
+    var silkColor1: Int by mutableStateOf(initial.silkColor1)
+    var silkColor2: Int by mutableStateOf(initial.silkColor2)
+    var silkColor3: Int by mutableStateOf(initial.silkColor3)
+    var silkColor4: Int by mutableStateOf(initial.silkColor4)
+    var silkColor5: Int by mutableStateOf(initial.silkColor5)
+    var silkColor6: Int by mutableStateOf(initial.silkColor6)
+    var silkColor7: Int by mutableStateOf(initial.silkColor7)
+    var silkBrightness: Float by mutableStateOf(initial.silkBrightness)
+    var silkContrast: Float by mutableStateOf(initial.silkContrast)
+    var silkSaturation: Float by mutableStateOf(initial.silkSaturation)
+    var silkScale: Float by mutableStateOf(initial.silkScale)
+    var silkIntensity: Float by mutableStateOf(initial.silkIntensity)
+    var silkWarp: Float by mutableStateOf(initial.silkWarp)
+    var silkDetail: Float by mutableStateOf(initial.silkDetail)
+    var silkHue: Float by mutableStateOf(initial.silkHue)
+    var silkSeed: Float by mutableStateOf(initial.silkSeed)
+    var silkRotation: Float by mutableStateOf(initial.silkRotation)
+    var silkDrift: Float by mutableStateOf(initial.silkDrift)
+    var silkVignette: Float by mutableStateOf(initial.silkVignette)
+    var silkBlur: Float by mutableStateOf(initial.silkBlur)
+    var silkGrain: Float by mutableStateOf(initial.silkGrain)
+    var tunnelSpeed: Float by mutableStateOf(initial.tunnelSpeed)
+    var tunnelBrightness: Float by mutableStateOf(initial.tunnelBrightness)
+    var tunnelDensity: Float by mutableStateOf(initial.tunnelDensity)
+    var tunnelFov: Float by mutableStateOf(initial.tunnelFov)
+    var voronoiColorCount: Int by mutableStateOf(initial.voronoiColorCount)
+    var voronoiStepsPerColor: Int by mutableStateOf(initial.voronoiStepsPerColor)
+    var voronoiColor0: Int by mutableStateOf(initial.voronoiColor0)
+    var voronoiColor1: Int by mutableStateOf(initial.voronoiColor1)
+    var voronoiColor2: Int by mutableStateOf(initial.voronoiColor2)
+    var voronoiColor3: Int by mutableStateOf(initial.voronoiColor3)
+    var voronoiColor4: Int by mutableStateOf(initial.voronoiColor4)
+    var voronoiColorGlow: Int by mutableStateOf(initial.voronoiColorGlow)
+    var voronoiColorGap: Int by mutableStateOf(initial.voronoiColorGap)
+    var voronoiDistortion: Float by mutableStateOf(initial.voronoiDistortion)
+    var voronoiGap: Float by mutableStateOf(initial.voronoiGap)
+    var voronoiGlow: Float by mutableStateOf(initial.voronoiGlow)
+    var voronoiScale: Float by mutableStateOf(initial.voronoiScale)
+    var voronoiFov: Float by mutableStateOf(initial.voronoiFov)
+    var voronoiSpeed: Float by mutableStateOf(initial.voronoiSpeed)
+    var voronoiRotation: Float by mutableStateOf(initial.voronoiRotation)
+    var voronoiOffsetX: Float by mutableStateOf(initial.voronoiOffsetX)
+    var voronoiOffsetY: Float by mutableStateOf(initial.voronoiOffsetY)
+    var slashStarfield: Boolean by mutableStateOf(initial.slashStarfield)
+    var slashStarDensity: Float by mutableStateOf(initial.slashStarDensity)
+    var slashStarBrightness: Float by mutableStateOf(initial.slashStarBrightness)
+    var slashStarSize: Float by mutableStateOf(initial.slashStarSize)
+    var slashStarColorMode: Int by mutableStateOf(initial.slashStarColorMode)
+    var uiTabVariant: Int by mutableStateOf(initial.uiTabVariant)
+    var uiTabSize: Int by mutableStateOf(initial.uiTabSize)
+    var uiTabCompact: Boolean by mutableStateOf(initial.uiTabCompact)
+    var uiSliderHeight: Int by mutableStateOf(initial.uiSliderHeight)
+    var uiSliderThumb: Int by mutableStateOf(initial.uiSliderThumb)
+    var uiSearchStyle: Int by mutableStateOf(initial.uiSearchStyle)
+    var uiSearchWidth: Float by mutableStateOf(initial.uiSearchWidth)
+    var uiSearchHeight: Float by mutableStateOf(initial.uiSearchHeight)
+    var uiSearchRadius: Float by mutableStateOf(initial.uiSearchRadius)
+    var uiSwitchStyle: Int by mutableStateOf(initial.uiSwitchStyle)
+    var uiSwitchWidth: Float by mutableStateOf(initial.uiSwitchWidth)
+    var uiSwitchHeight: Float by mutableStateOf(initial.uiSwitchHeight)
+    var uiSwitchKnob: Float by mutableStateOf(initial.uiSwitchKnob)
+    var uiSwitchGradientA: Int by mutableStateOf(initial.uiSwitchGradientA)
+    var uiSwitchGradientB: Int by mutableStateOf(initial.uiSwitchGradientB)
+    var uiSwitchTrackOff: Int by mutableStateOf(initial.uiSwitchTrackOff)
+    var uiSwitchSlideTrack: Int by mutableStateOf(initial.uiSwitchSlideTrack)
+    var uiSwitchSlideOff: Int by mutableStateOf(initial.uiSwitchSlideOff)
+    var uiSwitchSlideOn: Int by mutableStateOf(initial.uiSwitchSlideOn)
+    var uiSwitchTextTrackOff: Int by mutableStateOf(initial.uiSwitchTextTrackOff)
+    var uiSwitchTextTrackOn: Int by mutableStateOf(initial.uiSwitchTextTrackOn)
+    var uiSwitchTextKnob: Int by mutableStateOf(initial.uiSwitchTextKnob)
+    var uiSwitchTextColor: Int by mutableStateOf(initial.uiSwitchTextColor)
+    var uiSwitchTextOn: String by mutableStateOf(initial.uiSwitchTextOn)
+    var uiSwitchTextOff: String by mutableStateOf(initial.uiSwitchTextOff)
+    var domainRadius: Float by mutableStateOf(initial.domainRadius)
+    var rewindEnabled: Boolean by mutableStateOf(initial.rewindEnabled)
+    var rewindWindowSeconds: Int by mutableStateOf(initial.rewindWindowSeconds)
+    var rewindScopeMode: Int by mutableStateOf(initial.rewindScopeMode)
+    var rewindScope: Int by mutableStateOf(initial.rewindScope)
+    var rewindRadius: Float by mutableStateOf(initial.rewindRadius)
+    var rewindCooldownTicks: Int by mutableStateOf(initial.rewindCooldownTicks)
+    var rewindPlaybackMode: Int by mutableStateOf(initial.rewindPlaybackMode)
+    var rewindPlaybackSeconds: Float by mutableStateOf(initial.rewindPlaybackSeconds)
+    var rewindRestoreOrder: Int by mutableStateOf(initial.rewindRestoreOrder)
+    var rewindCameraMode: Int by mutableStateOf(initial.rewindCameraMode)
+    var rewindPositionRewind: Boolean by mutableStateOf(initial.rewindPositionRewind)
+    var rewindPositionMode: Int by mutableStateOf(initial.rewindPositionMode)
+    var rewindPlayerState: Boolean by mutableStateOf(initial.rewindPlayerState)
+    var rewindDeathEnabled: Boolean by mutableStateOf(initial.rewindDeathEnabled)
+    var rewindDeathCooldownTicks: Int by mutableStateOf(initial.rewindDeathCooldownTicks)
+    var rewindDeathMaxRetries: Int by mutableStateOf(initial.rewindDeathMaxRetries)
+    var rewindSafetyCheckpoint: Boolean by mutableStateOf(initial.rewindSafetyCheckpoint)
+    var rewindHostileCheck: Boolean by mutableStateOf(initial.rewindHostileCheck)
+    var rewindOtherItemDeduct: Boolean by mutableStateOf(initial.rewindOtherItemDeduct)
+    var rewindFreezeOthers: Boolean by mutableStateOf(initial.rewindFreezeOthers)
+    var rewindTimestopStacking: Boolean by mutableStateOf(initial.rewindTimestopStacking)
+    var rewindBlocks: Boolean by mutableStateOf(initial.rewindBlocks)
+    var rewindBlockEntities: Boolean by mutableStateOf(initial.rewindBlockEntities)
+    var rewindEntities: Boolean by mutableStateOf(initial.rewindEntities)
+    var rewindItems: Boolean by mutableStateOf(initial.rewindItems)
+    var rewindExperience: Boolean by mutableStateOf(initial.rewindExperience)
+    var rewindTime: Boolean by mutableStateOf(initial.rewindTime)
+    var rewindWeather: Boolean by mutableStateOf(initial.rewindWeather)
+    var rewindRaids: Boolean by mutableStateOf(initial.rewindRaids)
+    var rewindScoreboard: Boolean by mutableStateOf(initial.rewindScoreboard)
+    var rewindWorldBorder: Boolean by mutableStateOf(initial.rewindWorldBorder)
+    var rewindFreeCamRestorePosition: Boolean by mutableStateOf(initial.rewindFreeCamRestorePosition)
+    var rewindShowStats: Boolean by mutableStateOf(initial.rewindShowStats)
+
+    fun snapshot(): V9State = V9State(
+        enabled = enabled,
+        invulnerable = invulnerable,
+        grayScreen = grayScreen,
+        grayStrength = grayStrength,
+        grayAnimate = grayAnimate,
+        startAnim = startAnim,
+        endAnim = endAnim,
+        startDuration = startDuration,
+        endDuration = endDuration,
+        ballColor = ballColor,
+        ballColorCustom = ballColorCustom,
+        customColor = customColor,
+        particleSize = particleSize,
+        stopDuration = stopDuration,
+        triggerMode = triggerMode,
+        soundEnabled = soundEnabled,
+        cooldown = cooldown,
+        soundVolume = soundVolume,
+        particleAlpha = particleAlpha,
+        particleCount = particleCount,
+        particleSpin = particleSpin,
+        freezeSelf = freezeSelf,
+        stopRadius = stopRadius,
+        freezeEntities = freezeEntities,
+        freezeBlocks = freezeBlocks,
+        freezeFluids = freezeFluids,
+        freezeBossAI = freezeBossAI,
+        showMessage = showMessage,
+        grayStyle = grayStyle,
+        slashEnabled = slashEnabled,
+        slashDepthTest = slashDepthTest,
+        slashRandomAngle = slashRandomAngle,
+        slashGlow = slashGlow,
+        slashDuration = slashDuration,
+        slashLengthMult = slashLengthMult,
+        slashWidthRatio = slashWidthRatio,
+        slashThicknessRatio = slashThicknessRatio,
+        slashTipFade = slashTipFade,
+        slashStartScale = slashStartScale,
+        slashEndScale = slashEndScale,
+        slashCoreWidth = slashCoreWidth,
+        slashCoreShade = slashCoreShade,
+        slashEdgeWidth = slashEdgeWidth,
+        slashEdgeBrightness = slashEdgeBrightness,
+        slashGlowWidth = slashGlowWidth,
+        slashGlowStrength = slashGlowStrength,
+        slashNoiseStrength = slashNoiseStrength,
+        slashSweepSpeed = slashSweepSpeed,
+        slashSweepSoftness = slashSweepSoftness,
+        slashHoldFraction = slashHoldFraction,
+        slashFadeStart = slashFadeStart,
+        slashFadeDuration = slashFadeDuration,
+        slashSurfaceOffset = slashSurfaceOffset,
+        slashRollRange = slashRollRange,
+        slashCoreColor = slashCoreColor,
+        slashEdgeColor = slashEdgeColor,
+        slashGlowColor = slashGlowColor,
+        renderStyle = renderStyle,
+        silkColor0 = silkColor0,
+        silkColor1 = silkColor1,
+        silkColor2 = silkColor2,
+        silkColor3 = silkColor3,
+        silkColor4 = silkColor4,
+        silkColor5 = silkColor5,
+        silkColor6 = silkColor6,
+        silkColor7 = silkColor7,
+        silkBrightness = silkBrightness,
+        silkContrast = silkContrast,
+        silkSaturation = silkSaturation,
+        silkScale = silkScale,
+        silkIntensity = silkIntensity,
+        silkWarp = silkWarp,
+        silkDetail = silkDetail,
+        silkHue = silkHue,
+        silkSeed = silkSeed,
+        silkRotation = silkRotation,
+        silkDrift = silkDrift,
+        silkVignette = silkVignette,
+        silkBlur = silkBlur,
+        silkGrain = silkGrain,
+        tunnelSpeed = tunnelSpeed,
+        tunnelBrightness = tunnelBrightness,
+        tunnelDensity = tunnelDensity,
+        tunnelFov = tunnelFov,
+        voronoiColorCount = voronoiColorCount,
+        voronoiStepsPerColor = voronoiStepsPerColor,
+        voronoiColor0 = voronoiColor0,
+        voronoiColor1 = voronoiColor1,
+        voronoiColor2 = voronoiColor2,
+        voronoiColor3 = voronoiColor3,
+        voronoiColor4 = voronoiColor4,
+        voronoiColorGlow = voronoiColorGlow,
+        voronoiColorGap = voronoiColorGap,
+        voronoiDistortion = voronoiDistortion,
+        voronoiGap = voronoiGap,
+        voronoiGlow = voronoiGlow,
+        voronoiScale = voronoiScale,
+        voronoiFov = voronoiFov,
+        voronoiSpeed = voronoiSpeed,
+        voronoiRotation = voronoiRotation,
+        voronoiOffsetX = voronoiOffsetX,
+        voronoiOffsetY = voronoiOffsetY,
+        slashStarfield = slashStarfield,
+        slashStarDensity = slashStarDensity,
+        slashStarBrightness = slashStarBrightness,
+        slashStarSize = slashStarSize,
+        slashStarColorMode = slashStarColorMode,
+        uiTabVariant = uiTabVariant,
+        uiTabSize = uiTabSize,
+        uiTabCompact = uiTabCompact,
+        uiSliderHeight = uiSliderHeight,
+        uiSliderThumb = uiSliderThumb,
+        uiSearchStyle = uiSearchStyle,
+        uiSearchWidth = uiSearchWidth,
+        uiSearchHeight = uiSearchHeight,
+        uiSearchRadius = uiSearchRadius,
+        uiSwitchStyle = uiSwitchStyle,
+        uiSwitchWidth = uiSwitchWidth,
+        uiSwitchHeight = uiSwitchHeight,
+        uiSwitchKnob = uiSwitchKnob,
+        uiSwitchGradientA = uiSwitchGradientA,
+        uiSwitchGradientB = uiSwitchGradientB,
+        uiSwitchTrackOff = uiSwitchTrackOff,
+        uiSwitchSlideTrack = uiSwitchSlideTrack,
+        uiSwitchSlideOff = uiSwitchSlideOff,
+        uiSwitchSlideOn = uiSwitchSlideOn,
+        uiSwitchTextTrackOff = uiSwitchTextTrackOff,
+        uiSwitchTextTrackOn = uiSwitchTextTrackOn,
+        uiSwitchTextKnob = uiSwitchTextKnob,
+        uiSwitchTextColor = uiSwitchTextColor,
+        uiSwitchTextOn = uiSwitchTextOn,
+        uiSwitchTextOff = uiSwitchTextOff,
+        domainRadius = domainRadius,
+        rewindEnabled = rewindEnabled,
+        rewindWindowSeconds = rewindWindowSeconds,
+        rewindScopeMode = rewindScopeMode,
+        rewindScope = rewindScope,
+        rewindRadius = rewindRadius,
+        rewindCooldownTicks = rewindCooldownTicks,
+        rewindPlaybackMode = rewindPlaybackMode,
+        rewindPlaybackSeconds = rewindPlaybackSeconds,
+        rewindRestoreOrder = rewindRestoreOrder,
+        rewindCameraMode = rewindCameraMode,
+        rewindPositionRewind = rewindPositionRewind,
+        rewindPositionMode = rewindPositionMode,
+        rewindPlayerState = rewindPlayerState,
+        rewindDeathEnabled = rewindDeathEnabled,
+        rewindDeathCooldownTicks = rewindDeathCooldownTicks,
+        rewindDeathMaxRetries = rewindDeathMaxRetries,
+        rewindSafetyCheckpoint = rewindSafetyCheckpoint,
+        rewindHostileCheck = rewindHostileCheck,
+        rewindOtherItemDeduct = rewindOtherItemDeduct,
+        rewindFreezeOthers = rewindFreezeOthers,
+        rewindTimestopStacking = rewindTimestopStacking,
+        rewindBlocks = rewindBlocks,
+        rewindBlockEntities = rewindBlockEntities,
+        rewindEntities = rewindEntities,
+        rewindItems = rewindItems,
+        rewindExperience = rewindExperience,
+        rewindTime = rewindTime,
+        rewindWeather = rewindWeather,
+        rewindRaids = rewindRaids,
+        rewindScoreboard = rewindScoreboard,
+        rewindWorldBorder = rewindWorldBorder,
+        rewindFreeCamRestorePosition = rewindFreeCamRestorePosition,
+        rewindShowStats = rewindShowStats
+    )
+
+    fun restore(s: V9State) {
+        enabled = s.enabled
+        invulnerable = s.invulnerable
+        grayScreen = s.grayScreen
+        grayStrength = s.grayStrength
+        grayAnimate = s.grayAnimate
+        startAnim = s.startAnim
+        endAnim = s.endAnim
+        startDuration = s.startDuration
+        endDuration = s.endDuration
+        ballColor = s.ballColor
+        ballColorCustom = s.ballColorCustom
+        customColor = s.customColor
+        particleSize = s.particleSize
+        stopDuration = s.stopDuration
+        triggerMode = s.triggerMode
+        soundEnabled = s.soundEnabled
+        cooldown = s.cooldown
+        soundVolume = s.soundVolume
+        particleAlpha = s.particleAlpha
+        particleCount = s.particleCount
+        particleSpin = s.particleSpin
+        freezeSelf = s.freezeSelf
+        stopRadius = s.stopRadius
+        freezeEntities = s.freezeEntities
+        freezeBlocks = s.freezeBlocks
+        freezeFluids = s.freezeFluids
+        freezeBossAI = s.freezeBossAI
+        showMessage = s.showMessage
+        grayStyle = s.grayStyle
+        slashEnabled = s.slashEnabled
+        slashDepthTest = s.slashDepthTest
+        slashRandomAngle = s.slashRandomAngle
+        slashGlow = s.slashGlow
+        slashDuration = s.slashDuration
+        slashLengthMult = s.slashLengthMult
+        slashWidthRatio = s.slashWidthRatio
+        slashThicknessRatio = s.slashThicknessRatio
+        slashTipFade = s.slashTipFade
+        slashStartScale = s.slashStartScale
+        slashEndScale = s.slashEndScale
+        slashCoreWidth = s.slashCoreWidth
+        slashCoreShade = s.slashCoreShade
+        slashEdgeWidth = s.slashEdgeWidth
+        slashEdgeBrightness = s.slashEdgeBrightness
+        slashGlowWidth = s.slashGlowWidth
+        slashGlowStrength = s.slashGlowStrength
+        slashNoiseStrength = s.slashNoiseStrength
+        slashSweepSpeed = s.slashSweepSpeed
+        slashSweepSoftness = s.slashSweepSoftness
+        slashHoldFraction = s.slashHoldFraction
+        slashFadeStart = s.slashFadeStart
+        slashFadeDuration = s.slashFadeDuration
+        slashSurfaceOffset = s.slashSurfaceOffset
+        slashRollRange = s.slashRollRange
+        slashCoreColor = s.slashCoreColor
+        slashEdgeColor = s.slashEdgeColor
+        slashGlowColor = s.slashGlowColor
+        renderStyle = s.renderStyle
+        silkColor0 = s.silkColor0
+        silkColor1 = s.silkColor1
+        silkColor2 = s.silkColor2
+        silkColor3 = s.silkColor3
+        silkColor4 = s.silkColor4
+        silkColor5 = s.silkColor5
+        silkColor6 = s.silkColor6
+        silkColor7 = s.silkColor7
+        silkBrightness = s.silkBrightness
+        silkContrast = s.silkContrast
+        silkSaturation = s.silkSaturation
+        silkScale = s.silkScale
+        silkIntensity = s.silkIntensity
+        silkWarp = s.silkWarp
+        silkDetail = s.silkDetail
+        silkHue = s.silkHue
+        silkSeed = s.silkSeed
+        silkRotation = s.silkRotation
+        silkDrift = s.silkDrift
+        silkVignette = s.silkVignette
+        silkBlur = s.silkBlur
+        silkGrain = s.silkGrain
+        tunnelSpeed = s.tunnelSpeed
+        tunnelBrightness = s.tunnelBrightness
+        tunnelDensity = s.tunnelDensity
+        tunnelFov = s.tunnelFov
+        voronoiColorCount = s.voronoiColorCount
+        voronoiStepsPerColor = s.voronoiStepsPerColor
+        voronoiColor0 = s.voronoiColor0
+        voronoiColor1 = s.voronoiColor1
+        voronoiColor2 = s.voronoiColor2
+        voronoiColor3 = s.voronoiColor3
+        voronoiColor4 = s.voronoiColor4
+        voronoiColorGlow = s.voronoiColorGlow
+        voronoiColorGap = s.voronoiColorGap
+        voronoiDistortion = s.voronoiDistortion
+        voronoiGap = s.voronoiGap
+        voronoiGlow = s.voronoiGlow
+        voronoiScale = s.voronoiScale
+        voronoiFov = s.voronoiFov
+        voronoiSpeed = s.voronoiSpeed
+        voronoiRotation = s.voronoiRotation
+        voronoiOffsetX = s.voronoiOffsetX
+        voronoiOffsetY = s.voronoiOffsetY
+        slashStarfield = s.slashStarfield
+        slashStarDensity = s.slashStarDensity
+        slashStarBrightness = s.slashStarBrightness
+        slashStarSize = s.slashStarSize
+        slashStarColorMode = s.slashStarColorMode
+        uiTabVariant = s.uiTabVariant
+        uiTabSize = s.uiTabSize
+        uiTabCompact = s.uiTabCompact
+        uiSliderHeight = s.uiSliderHeight
+        uiSliderThumb = s.uiSliderThumb
+        uiSearchStyle = s.uiSearchStyle
+        uiSearchWidth = s.uiSearchWidth
+        uiSearchHeight = s.uiSearchHeight
+        uiSearchRadius = s.uiSearchRadius
+        uiSwitchStyle = s.uiSwitchStyle
+        uiSwitchWidth = s.uiSwitchWidth
+        uiSwitchHeight = s.uiSwitchHeight
+        uiSwitchKnob = s.uiSwitchKnob
+        uiSwitchGradientA = s.uiSwitchGradientA
+        uiSwitchGradientB = s.uiSwitchGradientB
+        uiSwitchTrackOff = s.uiSwitchTrackOff
+        uiSwitchSlideTrack = s.uiSwitchSlideTrack
+        uiSwitchSlideOff = s.uiSwitchSlideOff
+        uiSwitchSlideOn = s.uiSwitchSlideOn
+        uiSwitchTextTrackOff = s.uiSwitchTextTrackOff
+        uiSwitchTextTrackOn = s.uiSwitchTextTrackOn
+        uiSwitchTextKnob = s.uiSwitchTextKnob
+        uiSwitchTextColor = s.uiSwitchTextColor
+        uiSwitchTextOn = s.uiSwitchTextOn
+        uiSwitchTextOff = s.uiSwitchTextOff
+        domainRadius = s.domainRadius
+        rewindEnabled = s.rewindEnabled
+        rewindWindowSeconds = s.rewindWindowSeconds
+        rewindScopeMode = s.rewindScopeMode
+        rewindScope = s.rewindScope
+        rewindRadius = s.rewindRadius
+        rewindCooldownTicks = s.rewindCooldownTicks
+        rewindPlaybackMode = s.rewindPlaybackMode
+        rewindPlaybackSeconds = s.rewindPlaybackSeconds
+        rewindRestoreOrder = s.rewindRestoreOrder
+        rewindCameraMode = s.rewindCameraMode
+        rewindPositionRewind = s.rewindPositionRewind
+        rewindPositionMode = s.rewindPositionMode
+        rewindPlayerState = s.rewindPlayerState
+        rewindDeathEnabled = s.rewindDeathEnabled
+        rewindDeathCooldownTicks = s.rewindDeathCooldownTicks
+        rewindDeathMaxRetries = s.rewindDeathMaxRetries
+        rewindSafetyCheckpoint = s.rewindSafetyCheckpoint
+        rewindHostileCheck = s.rewindHostileCheck
+        rewindOtherItemDeduct = s.rewindOtherItemDeduct
+        rewindFreezeOthers = s.rewindFreezeOthers
+        rewindTimestopStacking = s.rewindTimestopStacking
+        rewindBlocks = s.rewindBlocks
+        rewindBlockEntities = s.rewindBlockEntities
+        rewindEntities = s.rewindEntities
+        rewindItems = s.rewindItems
+        rewindExperience = s.rewindExperience
+        rewindTime = s.rewindTime
+        rewindWeather = s.rewindWeather
+        rewindRaids = s.rewindRaids
+        rewindScoreboard = s.rewindScoreboard
+        rewindWorldBorder = s.rewindWorldBorder
+        rewindFreeCamRestorePosition = s.rewindFreeCamRestorePosition
+        rewindShowStats = s.rewindShowStats
+    }
+}
+
 @Composable
 private fun ComposeTestContent(
     initial: V9State,
@@ -613,258 +1296,99 @@ private fun ComposeTestContent(
     onSave: (V9State) -> Unit,
     onStageBounds: (Rect) -> Unit,
     onPresetSave: (Int, V9State) -> Unit,
-    onPresetLoad: (Int) -> V9State?
+    onPresetLoad: (Int) -> V9State?,
+    onPreview: (V9State) -> Unit = {},
+    unsaved: MutableState<Boolean> = mutableStateOf(false),
+    confirmingClose: MutableState<Boolean> = mutableStateOf(false)
 ) {
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = Color(0xFFFF7A5C),
-            background = Color(0xFF0B0D11),
-            surface = Color(0xFF12151B),
-            onPrimary = Color(0xFF1B100C),
-            onBackground = Color(0xFFF2F4F8),
-            onSurface = Color(0xFFF2F4F8)
+            primary = Ui.accent,
+            background = Ui.surface0,
+            surface = Ui.surface2,
+            onPrimary = Ui.textOnAccent,
+            onBackground = Ui.textPrimary,
+            onSurface = Ui.textPrimary
         )
     ) {
         var selectedNav by remember { mutableStateOf("时停") }
         var search by remember { mutableStateOf("") }
-        var enabled by remember { mutableStateOf(initial.enabled) }
-        var invulnerable by remember { mutableStateOf(initial.invulnerable) }
-        var grayScreen by remember { mutableStateOf(initial.grayScreen) }
-        var grayStrength by remember { mutableStateOf(initial.grayStrength) }
-        var grayAnimate by remember { mutableStateOf(initial.grayAnimate) }
-        var startAnim by remember { mutableStateOf(initial.startAnim) }
-        var endAnim by remember { mutableStateOf(initial.endAnim) }
-        var startDuration by remember { mutableStateOf(initial.startDuration) }
-        var endDuration by remember { mutableStateOf(initial.endDuration) }
-        var ballColor by remember { mutableStateOf(initial.ballColor) }
-        var ballColorCustom by remember { mutableStateOf(initial.ballColorCustom) }
-        var customColor by remember { mutableStateOf(initial.customColor) }
-        var particleSize by remember { mutableStateOf(initial.particleSize) }
-        var stopDuration by remember { mutableStateOf(initial.stopDuration) }
-        var triggerMode by remember { mutableStateOf(initial.triggerMode) }
-        var soundEnabled by remember { mutableStateOf(initial.soundEnabled) }
-        var cooldown by remember { mutableStateOf(initial.cooldown) }
-        var soundVolume by remember { mutableStateOf(initial.soundVolume) }
-        var particleAlpha by remember { mutableStateOf(initial.particleAlpha) }
-        var particleCount by remember { mutableStateOf(initial.particleCount) }
-        var particleSpin by remember { mutableStateOf(initial.particleSpin) }
-        var freezeSelf by remember { mutableStateOf(initial.freezeSelf) }
-        var stopRadius by remember { mutableStateOf(initial.stopRadius) }
-        var freezeEntities by remember { mutableStateOf(initial.freezeEntities) }
-        var freezeBlocks by remember { mutableStateOf(initial.freezeBlocks) }
-        var freezeFluids by remember { mutableStateOf(initial.freezeFluids) }
-        var freezeBossAI by remember { mutableStateOf(initial.freezeBossAI) }
-        var showMessage by remember { mutableStateOf(initial.showMessage) }
-        var grayStyle by remember { mutableStateOf(initial.grayStyle) }
-        var slashEnabled by remember { mutableStateOf(initial.slashEnabled) }
-        var slashDepthTest by remember { mutableStateOf(initial.slashDepthTest) }
-        var slashRandomAngle by remember { mutableStateOf(initial.slashRandomAngle) }
-        var slashGlow by remember { mutableStateOf(initial.slashGlow) }
-        var slashDuration by remember { mutableStateOf(initial.slashDuration) }
-        var slashLengthMult by remember { mutableStateOf(initial.slashLengthMult) }
-        var slashWidthRatio by remember { mutableStateOf(initial.slashWidthRatio) }
-        var slashThicknessRatio by remember { mutableStateOf(initial.slashThicknessRatio) }
-        var slashTipFade by remember { mutableStateOf(initial.slashTipFade) }
-        var slashStartScale by remember { mutableStateOf(initial.slashStartScale) }
-        var slashEndScale by remember { mutableStateOf(initial.slashEndScale) }
-        var slashCoreWidth by remember { mutableStateOf(initial.slashCoreWidth) }
-        var slashCoreShade by remember { mutableStateOf(initial.slashCoreShade) }
-        var slashEdgeWidth by remember { mutableStateOf(initial.slashEdgeWidth) }
-        var slashEdgeBrightness by remember { mutableStateOf(initial.slashEdgeBrightness) }
-        var slashGlowWidth by remember { mutableStateOf(initial.slashGlowWidth) }
-        var slashGlowStrength by remember { mutableStateOf(initial.slashGlowStrength) }
-        var slashNoiseStrength by remember { mutableStateOf(initial.slashNoiseStrength) }
-        var slashSweepSpeed by remember { mutableStateOf(initial.slashSweepSpeed) }
-        var slashSweepSoftness by remember { mutableStateOf(initial.slashSweepSoftness) }
-        var slashHoldFraction by remember { mutableStateOf(initial.slashHoldFraction) }
-        var slashFadeStart by remember { mutableStateOf(initial.slashFadeStart) }
-        var slashFadeDuration by remember { mutableStateOf(initial.slashFadeDuration) }
-        var slashSurfaceOffset by remember { mutableStateOf(initial.slashSurfaceOffset) }
-        var slashRollRange by remember { mutableStateOf(initial.slashRollRange) }
-        var slashCoreColor by remember { mutableStateOf(initial.slashCoreColor) }
-        var slashEdgeColor by remember { mutableStateOf(initial.slashEdgeColor) }
-        var slashGlowColor by remember { mutableStateOf(initial.slashGlowColor) }
-        var renderStyle by remember { mutableStateOf(initial.renderStyle) }
-        var silkColor0 by remember { mutableStateOf(initial.silkColor0) }
-        var silkColor1 by remember { mutableStateOf(initial.silkColor1) }
-        var silkColor2 by remember { mutableStateOf(initial.silkColor2) }
-        var silkColor3 by remember { mutableStateOf(initial.silkColor3) }
-        var silkColor4 by remember { mutableStateOf(initial.silkColor4) }
-        var silkColor5 by remember { mutableStateOf(initial.silkColor5) }
-        var silkColor6 by remember { mutableStateOf(initial.silkColor6) }
-        var silkColor7 by remember { mutableStateOf(initial.silkColor7) }
-        var silkBrightness by remember { mutableStateOf(initial.silkBrightness) }
-        var silkContrast by remember { mutableStateOf(initial.silkContrast) }
-        var silkSaturation by remember { mutableStateOf(initial.silkSaturation) }
-        var silkScale by remember { mutableStateOf(initial.silkScale) }
-        var silkIntensity by remember { mutableStateOf(initial.silkIntensity) }
-        var silkWarp by remember { mutableStateOf(initial.silkWarp) }
-        var silkDetail by remember { mutableStateOf(initial.silkDetail) }
-        var silkHue by remember { mutableStateOf(initial.silkHue) }
-        var silkSeed by remember { mutableStateOf(initial.silkSeed) }
-        var silkRotation by remember { mutableStateOf(initial.silkRotation) }
-        var silkDrift by remember { mutableStateOf(initial.silkDrift) }
-        var silkVignette by remember { mutableStateOf(initial.silkVignette) }
-        var silkBlur by remember { mutableStateOf(initial.silkBlur) }
-        var silkGrain by remember { mutableStateOf(initial.silkGrain) }
-        var tunnelSpeed by remember { mutableStateOf(initial.tunnelSpeed) }
-        var tunnelBrightness by remember { mutableStateOf(initial.tunnelBrightness) }
-        var tunnelDensity by remember { mutableStateOf(initial.tunnelDensity) }
-        var tunnelFov by remember { mutableStateOf(initial.tunnelFov) }
-        var voronoiColorCount by remember { mutableStateOf(initial.voronoiColorCount) }
-        var voronoiStepsPerColor by remember { mutableStateOf(initial.voronoiStepsPerColor) }
-        var voronoiColor0 by remember { mutableStateOf(initial.voronoiColor0) }
-        var voronoiColor1 by remember { mutableStateOf(initial.voronoiColor1) }
-        var voronoiColor2 by remember { mutableStateOf(initial.voronoiColor2) }
-        var voronoiColor3 by remember { mutableStateOf(initial.voronoiColor3) }
-        var voronoiColor4 by remember { mutableStateOf(initial.voronoiColor4) }
-        var voronoiColorGlow by remember { mutableStateOf(initial.voronoiColorGlow) }
-        var voronoiColorGap by remember { mutableStateOf(initial.voronoiColorGap) }
-        var voronoiDistortion by remember { mutableStateOf(initial.voronoiDistortion) }
-        var voronoiGap by remember { mutableStateOf(initial.voronoiGap) }
-        var voronoiGlow by remember { mutableStateOf(initial.voronoiGlow) }
-        var voronoiScale by remember { mutableStateOf(initial.voronoiScale) }
-        var voronoiFov by remember { mutableStateOf(initial.voronoiFov) }
-        var voronoiSpeed by remember { mutableStateOf(initial.voronoiSpeed) }
-        var voronoiRotation by remember { mutableStateOf(initial.voronoiRotation) }
-        var voronoiOffsetX by remember { mutableStateOf(initial.voronoiOffsetX) }
-        var voronoiOffsetY by remember { mutableStateOf(initial.voronoiOffsetY) }
+        val holder = remember { V9Holder(initial) }
         var voronoiPreset by remember { mutableStateOf(0) }
-        var slashStarfield by remember { mutableStateOf(initial.slashStarfield) }
-        var slashStarDensity by remember { mutableStateOf(initial.slashStarDensity) }
-        var slashStarBrightness by remember { mutableStateOf(initial.slashStarBrightness) }
-        var slashStarSize by remember { mutableStateOf(initial.slashStarSize) }
-        var slashStarColorMode by remember { mutableStateOf(initial.slashStarColorMode) }
-        var uiTabVariant by remember { mutableStateOf(initial.uiTabVariant) }
-        var uiTabSize by remember { mutableStateOf(initial.uiTabSize) }
-        var uiTabCompact by remember { mutableStateOf(initial.uiTabCompact) }
-        var uiSliderHeight by remember { mutableStateOf(initial.uiSliderHeight) }
-        var uiSliderThumb by remember { mutableStateOf(initial.uiSliderThumb) }
-        var uiSearchStyle by remember { mutableStateOf(initial.uiSearchStyle) }
-        var uiSearchWidth by remember { mutableStateOf(initial.uiSearchWidth) }
-        var uiSearchHeight by remember { mutableStateOf(initial.uiSearchHeight) }
-        var uiSearchRadius by remember { mutableStateOf(initial.uiSearchRadius) }
-        var uiSwitchStyle by remember { mutableStateOf(initial.uiSwitchStyle) }
-        var uiSwitchWidth by remember { mutableStateOf(initial.uiSwitchWidth) }
-        var uiSwitchHeight by remember { mutableStateOf(initial.uiSwitchHeight) }
-        var uiSwitchKnob by remember { mutableStateOf(initial.uiSwitchKnob) }
-        var uiSwitchGradientA by remember { mutableStateOf(initial.uiSwitchGradientA) }
-        var uiSwitchGradientB by remember { mutableStateOf(initial.uiSwitchGradientB) }
-        var uiSwitchTrackOff by remember { mutableStateOf(initial.uiSwitchTrackOff) }
-        var uiSwitchSlideTrack by remember { mutableStateOf(initial.uiSwitchSlideTrack) }
-        var uiSwitchSlideOff by remember { mutableStateOf(initial.uiSwitchSlideOff) }
-        var uiSwitchSlideOn by remember { mutableStateOf(initial.uiSwitchSlideOn) }
-        var uiSwitchTextTrackOff by remember { mutableStateOf(initial.uiSwitchTextTrackOff) }
-        var uiSwitchTextTrackOn by remember { mutableStateOf(initial.uiSwitchTextTrackOn) }
-        var uiSwitchTextKnob by remember { mutableStateOf(initial.uiSwitchTextKnob) }
-        var uiSwitchTextColor by remember { mutableStateOf(initial.uiSwitchTextColor) }
-        var uiSwitchTextOn by remember { mutableStateOf(initial.uiSwitchTextOn) }
-        var uiSwitchTextOff by remember { mutableStateOf(initial.uiSwitchTextOff) }
-        var rewindEnabled by remember { mutableStateOf(initial.rewindEnabled) }
-        var rewindWindowSeconds by remember { mutableStateOf(initial.rewindWindowSeconds) }
-        var rewindScopeMode by remember { mutableStateOf(initial.rewindScopeMode) }
-        var rewindScope by remember { mutableStateOf(initial.rewindScope) }
-        var rewindRadius by remember { mutableStateOf(initial.rewindRadius) }
-        var rewindCooldownTicks by remember { mutableStateOf(initial.rewindCooldownTicks) }
-        var rewindPlaybackMode by remember { mutableStateOf(initial.rewindPlaybackMode) }
-        var rewindPlaybackSeconds by remember { mutableStateOf(initial.rewindPlaybackSeconds) }
-        var rewindRestoreOrder by remember { mutableStateOf(initial.rewindRestoreOrder) }
-        var rewindCameraMode by remember { mutableStateOf(initial.rewindCameraMode) }
-        var rewindPositionRewind by remember { mutableStateOf(initial.rewindPositionRewind) }
-        var rewindPositionMode by remember { mutableStateOf(initial.rewindPositionMode) }
-        var rewindPlayerState by remember { mutableStateOf(initial.rewindPlayerState) }
-        var rewindDeathEnabled by remember { mutableStateOf(initial.rewindDeathEnabled) }
-        var rewindDeathCooldownTicks by remember { mutableStateOf(initial.rewindDeathCooldownTicks) }
-        var rewindDeathMaxRetries by remember { mutableStateOf(initial.rewindDeathMaxRetries) }
-        var rewindSafetyCheckpoint by remember { mutableStateOf(initial.rewindSafetyCheckpoint) }
-        var rewindHostileCheck by remember { mutableStateOf(initial.rewindHostileCheck) }
-        var rewindOtherItemDeduct by remember { mutableStateOf(initial.rewindOtherItemDeduct) }
-        var rewindFreezeOthers by remember { mutableStateOf(initial.rewindFreezeOthers) }
-        var rewindTimestopStacking by remember { mutableStateOf(initial.rewindTimestopStacking) }
-        var rewindBlocks by remember { mutableStateOf(initial.rewindBlocks) }
-        var rewindBlockEntities by remember { mutableStateOf(initial.rewindBlockEntities) }
-        var rewindEntities by remember { mutableStateOf(initial.rewindEntities) }
-        var rewindItems by remember { mutableStateOf(initial.rewindItems) }
-        var rewindExperience by remember { mutableStateOf(initial.rewindExperience) }
-        var rewindTime by remember { mutableStateOf(initial.rewindTime) }
-        var rewindWeather by remember { mutableStateOf(initial.rewindWeather) }
-        var rewindRaids by remember { mutableStateOf(initial.rewindRaids) }
-        var rewindScoreboard by remember { mutableStateOf(initial.rewindScoreboard) }
-        var rewindWorldBorder by remember { mutableStateOf(initial.rewindWorldBorder) }
-        var rewindFreeCamRestorePosition by remember { mutableStateOf(initial.rewindFreeCamRestorePosition) }
-        var rewindShowStats by remember { mutableStateOf(initial.rewindShowStats) }
         var presetSlot by remember { mutableStateOf(0) }
         var sectionTab by remember { mutableStateOf("基础") }
         var dirty by remember { mutableStateOf(false) }
+        var revision by remember { mutableStateOf(0) }
+        fun markDirty() { dirty = true; revision++ }
         val baseline = remember { initial }
 
         fun toggle(id: String) {
             when (id) {
-                "enabled" -> enabled = !enabled
-                "invulnerable" -> invulnerable = !invulnerable
-                "grayScreen" -> grayScreen = !grayScreen
-                "grayAnimate" -> grayAnimate = !grayAnimate
-                "soundEnabled" -> soundEnabled = !soundEnabled
-                "freezeSelf" -> freezeSelf = !freezeSelf
-                "freezeEntities" -> freezeEntities = !freezeEntities
-                "freezeBlocks" -> freezeBlocks = !freezeBlocks
-                "freezeFluids" -> freezeFluids = !freezeFluids
-                "freezeBossAI" -> freezeBossAI = !freezeBossAI
-                "slashEnabled" -> slashEnabled = !slashEnabled
-                "slashDepthTest" -> slashDepthTest = !slashDepthTest
-                "slashRandomAngle" -> slashRandomAngle = !slashRandomAngle
-                "slashGlow" -> slashGlow = !slashGlow
-                "slashStarfield" -> slashStarfield = !slashStarfield
-                "uiTabCompact" -> uiTabCompact = !uiTabCompact
-                "rewindEnabled" -> rewindEnabled = !rewindEnabled
-                "rewindPositionRewind" -> rewindPositionRewind = !rewindPositionRewind
-                "rewindPlayerState" -> rewindPlayerState = !rewindPlayerState
-                "rewindDeathEnabled" -> rewindDeathEnabled = !rewindDeathEnabled
-                "rewindSafetyCheckpoint" -> rewindSafetyCheckpoint = !rewindSafetyCheckpoint
-                "rewindHostileCheck" -> rewindHostileCheck = !rewindHostileCheck
-                "rewindOtherItemDeduct" -> rewindOtherItemDeduct = !rewindOtherItemDeduct
-                "rewindFreezeOthers" -> rewindFreezeOthers = !rewindFreezeOthers
-                "rewindTimestopStacking" -> rewindTimestopStacking = !rewindTimestopStacking
-                "rewindBlocks" -> rewindBlocks = !rewindBlocks
-                "rewindBlockEntities" -> rewindBlockEntities = !rewindBlockEntities
-                "rewindEntities" -> rewindEntities = !rewindEntities
-                "rewindItems" -> rewindItems = !rewindItems
-                "rewindExperience" -> rewindExperience = !rewindExperience
-                "rewindTime" -> rewindTime = !rewindTime
-                "rewindWeather" -> rewindWeather = !rewindWeather
-                "rewindRaids" -> rewindRaids = !rewindRaids
-                "rewindScoreboard" -> rewindScoreboard = !rewindScoreboard
-                "rewindWorldBorder" -> rewindWorldBorder = !rewindWorldBorder
-                "rewindFreeCamRestorePosition" -> rewindFreeCamRestorePosition = !rewindFreeCamRestorePosition
-                "rewindShowStats" -> rewindShowStats = !rewindShowStats
-                else -> showMessage = !showMessage
+                "enabled" -> holder.enabled = !holder.enabled
+                "invulnerable" -> holder.invulnerable = !holder.invulnerable
+                "grayScreen" -> holder.grayScreen = !holder.grayScreen
+                "grayAnimate" -> holder.grayAnimate = !holder.grayAnimate
+                "soundEnabled" -> holder.soundEnabled = !holder.soundEnabled
+                "freezeSelf" -> holder.freezeSelf = !holder.freezeSelf
+                "freezeEntities" -> holder.freezeEntities = !holder.freezeEntities
+                "freezeBlocks" -> holder.freezeBlocks = !holder.freezeBlocks
+                "freezeFluids" -> holder.freezeFluids = !holder.freezeFluids
+                "freezeBossAI" -> holder.freezeBossAI = !holder.freezeBossAI
+                "slashEnabled" -> holder.slashEnabled = !holder.slashEnabled
+                "slashDepthTest" -> holder.slashDepthTest = !holder.slashDepthTest
+                "slashRandomAngle" -> holder.slashRandomAngle = !holder.slashRandomAngle
+                "slashGlow" -> holder.slashGlow = !holder.slashGlow
+                "slashStarfield" -> holder.slashStarfield = !holder.slashStarfield
+                "uiTabCompact" -> holder.uiTabCompact = !holder.uiTabCompact
+                "rewindEnabled" -> holder.rewindEnabled = !holder.rewindEnabled
+                "rewindPositionRewind" -> holder.rewindPositionRewind = !holder.rewindPositionRewind
+                "rewindPlayerState" -> holder.rewindPlayerState = !holder.rewindPlayerState
+                "rewindDeathEnabled" -> holder.rewindDeathEnabled = !holder.rewindDeathEnabled
+                "rewindSafetyCheckpoint" -> holder.rewindSafetyCheckpoint = !holder.rewindSafetyCheckpoint
+                "rewindHostileCheck" -> holder.rewindHostileCheck = !holder.rewindHostileCheck
+                "rewindOtherItemDeduct" -> holder.rewindOtherItemDeduct = !holder.rewindOtherItemDeduct
+                "rewindFreezeOthers" -> holder.rewindFreezeOthers = !holder.rewindFreezeOthers
+                "rewindTimestopStacking" -> holder.rewindTimestopStacking = !holder.rewindTimestopStacking
+                "rewindBlocks" -> holder.rewindBlocks = !holder.rewindBlocks
+                "rewindBlockEntities" -> holder.rewindBlockEntities = !holder.rewindBlockEntities
+                "rewindEntities" -> holder.rewindEntities = !holder.rewindEntities
+                "rewindItems" -> holder.rewindItems = !holder.rewindItems
+                "rewindExperience" -> holder.rewindExperience = !holder.rewindExperience
+                "rewindTime" -> holder.rewindTime = !holder.rewindTime
+                "rewindWeather" -> holder.rewindWeather = !holder.rewindWeather
+                "rewindRaids" -> holder.rewindRaids = !holder.rewindRaids
+                "rewindScoreboard" -> holder.rewindScoreboard = !holder.rewindScoreboard
+                "rewindWorldBorder" -> holder.rewindWorldBorder = !holder.rewindWorldBorder
+                "rewindFreeCamRestorePosition" -> holder.rewindFreeCamRestorePosition = !holder.rewindFreeCamRestorePosition
+                "rewindShowStats" -> holder.rewindShowStats = !holder.rewindShowStats
+                else -> holder.showMessage = !holder.showMessage
             }
-            dirty = true
+            markDirty()
         }
 
         fun setSegment(id: String, v: Int) {
-            if (id == "startAnim") startAnim = v
-            else if (id == "endAnim") endAnim = v
-            else if (id == "triggerMode") triggerMode = v
-            else if (id == "renderStyle") renderStyle = renderStyleStored(v)
-            else if (id == "slashStarColorMode") slashStarColorMode = v
-            else if (id == "uiTabVariant") uiTabVariant = v
-            else if (id == "uiTabSize") uiTabSize = v
-            else if (id == "uiSliderHeight") uiSliderHeight = v
-            else if (id == "uiSliderThumb") uiSliderThumb = v
-            else if (id == "uiSearchStyle") uiSearchStyle = v
-            else if (id == "uiSwitchStyle") uiSwitchStyle = v
+            if (id == "startAnim") holder.startAnim = v
+            else if (id == "endAnim") holder.endAnim = v
+            else if (id == "triggerMode") holder.triggerMode = v
+            else if (id == "renderStyle") holder.renderStyle = renderStyleStored(v)
+            else if (id == "slashStarColorMode") holder.slashStarColorMode = v
+            else if (id == "uiTabVariant") holder.uiTabVariant = v
+            else if (id == "uiTabSize") holder.uiTabSize = v
+            else if (id == "uiSliderHeight") holder.uiSliderHeight = v
+            else if (id == "uiSliderThumb") holder.uiSliderThumb = v
+            else if (id == "uiSearchStyle") holder.uiSearchStyle = v
+            else if (id == "uiSwitchStyle") holder.uiSwitchStyle = v
             else if (id == "voronoiPreset") voronoiPreset = v
-            else if (id == "voronoiColorCount") voronoiColorCount = v
-            else if (id == "voronoiStepsPerColor") voronoiStepsPerColor = v
-            else if (id == "rewindScopeMode") rewindScopeMode = v
-            else if (id == "rewindScope") rewindScope = v
-            else if (id == "rewindPlaybackMode") rewindPlaybackMode = v
-            else if (id == "rewindRestoreOrder") rewindRestoreOrder = v
-            else if (id == "rewindCameraMode") rewindCameraMode = v
-            else if (id == "rewindPositionMode") rewindPositionMode = v
-            else grayStyle = v
-            dirty = true
+            else if (id == "voronoiColorCount") holder.voronoiColorCount = v
+            else if (id == "voronoiStepsPerColor") holder.voronoiStepsPerColor = v
+            else if (id == "rewindScopeMode") holder.rewindScopeMode = v
+            else if (id == "rewindScope") holder.rewindScope = v
+            else if (id == "rewindPlaybackMode") holder.rewindPlaybackMode = v
+            else if (id == "rewindRestoreOrder") holder.rewindRestoreOrder = v
+            else if (id == "rewindCameraMode") holder.rewindCameraMode = v
+            else if (id == "rewindPositionMode") holder.rewindPositionMode = v
+            else holder.grayStyle = v
+            markDirty()
         }
 
         fun setVoronoiColor(idx: Int, ch: Char, v: Float) {
@@ -883,13 +1407,13 @@ private fun ComposeTestContent(
             }
             fun patch(current: Int): Int = (current and mask) or (value shl shift)
             when (idx) {
-                0 -> voronoiColor0 = patch(voronoiColor0)
-                1 -> voronoiColor1 = patch(voronoiColor1)
-                2 -> voronoiColor2 = patch(voronoiColor2)
-                3 -> voronoiColor3 = patch(voronoiColor3)
-                4 -> voronoiColor4 = patch(voronoiColor4)
-                5 -> voronoiColorGlow = patch(voronoiColorGlow)
-                else -> voronoiColorGap = patch(voronoiColorGap)
+                0 -> holder.voronoiColor0 = patch(holder.voronoiColor0)
+                1 -> holder.voronoiColor1 = patch(holder.voronoiColor1)
+                2 -> holder.voronoiColor2 = patch(holder.voronoiColor2)
+                3 -> holder.voronoiColor3 = patch(holder.voronoiColor3)
+                4 -> holder.voronoiColor4 = patch(holder.voronoiColor4)
+                5 -> holder.voronoiColorGlow = patch(holder.voronoiColorGlow)
+                else -> holder.voronoiColorGap = patch(holder.voronoiColorGap)
             }
         }
 
@@ -907,132 +1431,133 @@ private fun ComposeTestContent(
             }
             fun patch(current: Int): Int = (current and mask) or (value shl shift)
             when (idx) {
-                0 -> silkColor0 = patch(silkColor0)
-                1 -> silkColor1 = patch(silkColor1)
-                2 -> silkColor2 = patch(silkColor2)
-                3 -> silkColor3 = patch(silkColor3)
-                4 -> silkColor4 = patch(silkColor4)
-                5 -> silkColor5 = patch(silkColor5)
-                6 -> silkColor6 = patch(silkColor6)
-                else -> silkColor7 = patch(silkColor7)
+                0 -> holder.silkColor0 = patch(holder.silkColor0)
+                1 -> holder.silkColor1 = patch(holder.silkColor1)
+                2 -> holder.silkColor2 = patch(holder.silkColor2)
+                3 -> holder.silkColor3 = patch(holder.silkColor3)
+                4 -> holder.silkColor4 = patch(holder.silkColor4)
+                5 -> holder.silkColor5 = patch(holder.silkColor5)
+                6 -> holder.silkColor6 = patch(holder.silkColor6)
+                else -> holder.silkColor7 = patch(holder.silkColor7)
             }
         }
 
         fun setSlider(id: String, v: Float) {
             when (id) {
-                "startDuration" -> startDuration = v
-                "endDuration" -> endDuration = v
-                "grayStrength" -> grayStrength = v
-                "particleSize" -> particleSize = v
-                "stopDuration" -> stopDuration = v
-                "cooldown" -> cooldown = v.toInt()
-                "soundVolume" -> soundVolume = v
-                "particleAlpha" -> particleAlpha = v
-                "particleCount" -> particleCount = v.toInt()
-                "particleSpin" -> particleSpin = v
-                "stopRadius" -> stopRadius = v
-                "slashDuration" -> slashDuration = v
-                "slashLengthMult" -> slashLengthMult = v
-                "slashWidthRatio" -> slashWidthRatio = v
-                "slashThicknessRatio" -> slashThicknessRatio = v
-                "slashTipFade" -> slashTipFade = v
-                "slashStartScale" -> slashStartScale = v
-                "slashEndScale" -> slashEndScale = v
-                "slashCoreWidth" -> slashCoreWidth = v
-                "slashCoreShade" -> slashCoreShade = v
-                "slashEdgeWidth" -> slashEdgeWidth = v
-                "slashEdgeBrightness" -> slashEdgeBrightness = v
-                "slashGlowWidth" -> slashGlowWidth = v
-                "slashGlowStrength" -> slashGlowStrength = v
-                "slashNoiseStrength" -> slashNoiseStrength = v
-                "slashSweepSpeed" -> slashSweepSpeed = v
-                "slashSweepSoftness" -> slashSweepSoftness = v
-                "slashHoldFraction" -> slashHoldFraction = v
-                "slashFadeStart" -> slashFadeStart = v
-                "slashFadeDuration" -> slashFadeDuration = v
-                "slashSurfaceOffset" -> slashSurfaceOffset = v
-                "slashRollRange" -> slashRollRange = v
-                "silkBrightness" -> silkBrightness = v
-                "silkContrast" -> silkContrast = v
-                "silkSaturation" -> silkSaturation = v
-                "silkScale" -> silkScale = v
-                "silkIntensity" -> silkIntensity = v
-                "silkWarp" -> silkWarp = v
-                "silkDetail" -> silkDetail = v
-                "silkHue" -> silkHue = v
-                "silkSeed" -> silkSeed = v
-                "silkRotation" -> silkRotation = v
-                "silkDrift" -> silkDrift = v
-                "silkVignette" -> silkVignette = v
-                "silkBlur" -> silkBlur = v
-                "silkGrain" -> silkGrain = v
-                "tunnelSpeed" -> tunnelSpeed = v
-                "tunnelBrightness" -> tunnelBrightness = v
-                "tunnelDensity" -> tunnelDensity = v
-                "tunnelFov" -> tunnelFov = v
-                "voronoiDistortion" -> voronoiDistortion = v
-                "voronoiGap" -> voronoiGap = v
-                "voronoiGlow" -> voronoiGlow = v
-                "voronoiScale" -> voronoiScale = v
-                "voronoiFov" -> voronoiFov = v
-                "voronoiSpeed" -> voronoiSpeed = v
-                "voronoiRotation" -> voronoiRotation = v
-                "voronoiOffsetX" -> voronoiOffsetX = v
-                "voronoiOffsetY" -> voronoiOffsetY = v
-                "slashStarDensity" -> slashStarDensity = v
-                "slashStarBrightness" -> slashStarBrightness = v
-                "slashStarSize" -> slashStarSize = v
-                "slashCoreColorR" -> slashCoreColor = (slashCoreColor and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "slashCoreColorG" -> slashCoreColor = (slashCoreColor and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "slashCoreColorB" -> slashCoreColor = (slashCoreColor and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "slashEdgeColorR" -> slashEdgeColor = (slashEdgeColor and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "slashEdgeColorG" -> slashEdgeColor = (slashEdgeColor and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "slashEdgeColorB" -> slashEdgeColor = (slashEdgeColor and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "slashGlowColorR" -> slashGlowColor = (slashGlowColor and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "slashGlowColorG" -> slashGlowColor = (slashGlowColor and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "slashGlowColorB" -> slashGlowColor = (slashGlowColor and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "rewindWindowSeconds" -> rewindWindowSeconds = v.toInt()
-                "rewindRadius" -> rewindRadius = v
-                "rewindCooldownTicks" -> rewindCooldownTicks = v.toInt()
-                "rewindPlaybackSeconds" -> rewindPlaybackSeconds = v
-                "rewindDeathCooldownTicks" -> rewindDeathCooldownTicks = v.toInt()
-                "rewindDeathMaxRetries" -> rewindDeathMaxRetries = v.toInt()
-                "uiSearchWidth" -> uiSearchWidth = v
-                "uiSearchHeight" -> uiSearchHeight = v
-                "uiSearchRadius" -> uiSearchRadius = v
-                "uiSwitchWidth" -> uiSwitchWidth = v
-                "uiSwitchHeight" -> uiSwitchHeight = v
-                "uiSwitchKnob" -> uiSwitchKnob = v
-                "uiSwitchGradientAR" -> uiSwitchGradientA = (uiSwitchGradientA and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "uiSwitchGradientAG" -> uiSwitchGradientA = (uiSwitchGradientA and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "uiSwitchGradientAB" -> uiSwitchGradientA = (uiSwitchGradientA and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "uiSwitchGradientBR" -> uiSwitchGradientB = (uiSwitchGradientB and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "uiSwitchGradientBG" -> uiSwitchGradientB = (uiSwitchGradientB and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "uiSwitchGradientBB" -> uiSwitchGradientB = (uiSwitchGradientB and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "uiSwitchTrackOffR" -> uiSwitchTrackOff = (uiSwitchTrackOff and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "uiSwitchTrackOffG" -> uiSwitchTrackOff = (uiSwitchTrackOff and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "uiSwitchTrackOffB" -> uiSwitchTrackOff = (uiSwitchTrackOff and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "uiSwitchSlideTrackR" -> uiSwitchSlideTrack = (uiSwitchSlideTrack and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "uiSwitchSlideTrackG" -> uiSwitchSlideTrack = (uiSwitchSlideTrack and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "uiSwitchSlideTrackB" -> uiSwitchSlideTrack = (uiSwitchSlideTrack and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "uiSwitchSlideOffR" -> uiSwitchSlideOff = (uiSwitchSlideOff and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "uiSwitchSlideOffG" -> uiSwitchSlideOff = (uiSwitchSlideOff and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "uiSwitchSlideOffB" -> uiSwitchSlideOff = (uiSwitchSlideOff and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "uiSwitchSlideOnR" -> uiSwitchSlideOn = (uiSwitchSlideOn and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "uiSwitchSlideOnG" -> uiSwitchSlideOn = (uiSwitchSlideOn and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "uiSwitchSlideOnB" -> uiSwitchSlideOn = (uiSwitchSlideOn and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "uiSwitchTextTrackOffR" -> uiSwitchTextTrackOff = (uiSwitchTextTrackOff and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "uiSwitchTextTrackOffG" -> uiSwitchTextTrackOff = (uiSwitchTextTrackOff and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "uiSwitchTextTrackOffB" -> uiSwitchTextTrackOff = (uiSwitchTextTrackOff and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "uiSwitchTextTrackOnR" -> uiSwitchTextTrackOn = (uiSwitchTextTrackOn and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "uiSwitchTextTrackOnG" -> uiSwitchTextTrackOn = (uiSwitchTextTrackOn and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "uiSwitchTextTrackOnB" -> uiSwitchTextTrackOn = (uiSwitchTextTrackOn and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "uiSwitchTextKnobR" -> uiSwitchTextKnob = (uiSwitchTextKnob and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "uiSwitchTextKnobG" -> uiSwitchTextKnob = (uiSwitchTextKnob and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "uiSwitchTextKnobB" -> uiSwitchTextKnob = (uiSwitchTextKnob and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
-                "uiSwitchTextColorR" -> uiSwitchTextColor = (uiSwitchTextColor and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
-                "uiSwitchTextColorG" -> uiSwitchTextColor = (uiSwitchTextColor and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
-                "uiSwitchTextColorB" -> uiSwitchTextColor = (uiSwitchTextColor and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "startDuration" -> holder.startDuration = v
+                "endDuration" -> holder.endDuration = v
+                "grayStrength" -> holder.grayStrength = v
+                "particleSize" -> holder.particleSize = v
+                "stopDuration" -> holder.stopDuration = v
+                "cooldown" -> holder.cooldown = v.toInt()
+                "soundVolume" -> holder.soundVolume = v
+                "particleAlpha" -> holder.particleAlpha = v
+                "particleCount" -> holder.particleCount = v.toInt()
+                "particleSpin" -> holder.particleSpin = v
+                "stopRadius" -> holder.stopRadius = v
+                "domainRadius" -> holder.domainRadius = v
+                "slashDuration" -> holder.slashDuration = v
+                "slashLengthMult" -> holder.slashLengthMult = v
+                "slashWidthRatio" -> holder.slashWidthRatio = v
+                "slashThicknessRatio" -> holder.slashThicknessRatio = v
+                "slashTipFade" -> holder.slashTipFade = v
+                "slashStartScale" -> holder.slashStartScale = v
+                "slashEndScale" -> holder.slashEndScale = v
+                "slashCoreWidth" -> holder.slashCoreWidth = v
+                "slashCoreShade" -> holder.slashCoreShade = v
+                "slashEdgeWidth" -> holder.slashEdgeWidth = v
+                "slashEdgeBrightness" -> holder.slashEdgeBrightness = v
+                "slashGlowWidth" -> holder.slashGlowWidth = v
+                "slashGlowStrength" -> holder.slashGlowStrength = v
+                "slashNoiseStrength" -> holder.slashNoiseStrength = v
+                "slashSweepSpeed" -> holder.slashSweepSpeed = v
+                "slashSweepSoftness" -> holder.slashSweepSoftness = v
+                "slashHoldFraction" -> holder.slashHoldFraction = v
+                "slashFadeStart" -> holder.slashFadeStart = v
+                "slashFadeDuration" -> holder.slashFadeDuration = v
+                "slashSurfaceOffset" -> holder.slashSurfaceOffset = v
+                "slashRollRange" -> holder.slashRollRange = v
+                "silkBrightness" -> holder.silkBrightness = v
+                "silkContrast" -> holder.silkContrast = v
+                "silkSaturation" -> holder.silkSaturation = v
+                "silkScale" -> holder.silkScale = v
+                "silkIntensity" -> holder.silkIntensity = v
+                "silkWarp" -> holder.silkWarp = v
+                "silkDetail" -> holder.silkDetail = v
+                "silkHue" -> holder.silkHue = v
+                "silkSeed" -> holder.silkSeed = v
+                "silkRotation" -> holder.silkRotation = v
+                "silkDrift" -> holder.silkDrift = v
+                "silkVignette" -> holder.silkVignette = v
+                "silkBlur" -> holder.silkBlur = v
+                "silkGrain" -> holder.silkGrain = v
+                "tunnelSpeed" -> holder.tunnelSpeed = v
+                "tunnelBrightness" -> holder.tunnelBrightness = v
+                "tunnelDensity" -> holder.tunnelDensity = v
+                "tunnelFov" -> holder.tunnelFov = v
+                "voronoiDistortion" -> holder.voronoiDistortion = v
+                "voronoiGap" -> holder.voronoiGap = v
+                "voronoiGlow" -> holder.voronoiGlow = v
+                "voronoiScale" -> holder.voronoiScale = v
+                "voronoiFov" -> holder.voronoiFov = v
+                "voronoiSpeed" -> holder.voronoiSpeed = v
+                "voronoiRotation" -> holder.voronoiRotation = v
+                "voronoiOffsetX" -> holder.voronoiOffsetX = v
+                "voronoiOffsetY" -> holder.voronoiOffsetY = v
+                "slashStarDensity" -> holder.slashStarDensity = v
+                "slashStarBrightness" -> holder.slashStarBrightness = v
+                "slashStarSize" -> holder.slashStarSize = v
+                "slashCoreColorR" -> holder.slashCoreColor = (holder.slashCoreColor and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "slashCoreColorG" -> holder.slashCoreColor = (holder.slashCoreColor and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "slashCoreColorB" -> holder.slashCoreColor = (holder.slashCoreColor and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "slashEdgeColorR" -> holder.slashEdgeColor = (holder.slashEdgeColor and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "slashEdgeColorG" -> holder.slashEdgeColor = (holder.slashEdgeColor and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "slashEdgeColorB" -> holder.slashEdgeColor = (holder.slashEdgeColor and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "slashGlowColorR" -> holder.slashGlowColor = (holder.slashGlowColor and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "slashGlowColorG" -> holder.slashGlowColor = (holder.slashGlowColor and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "slashGlowColorB" -> holder.slashGlowColor = (holder.slashGlowColor and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "rewindWindowSeconds" -> holder.rewindWindowSeconds = v.toInt()
+                "rewindRadius" -> holder.rewindRadius = v
+                "rewindCooldownTicks" -> holder.rewindCooldownTicks = v.toInt()
+                "rewindPlaybackSeconds" -> holder.rewindPlaybackSeconds = v
+                "rewindDeathCooldownTicks" -> holder.rewindDeathCooldownTicks = v.toInt()
+                "rewindDeathMaxRetries" -> holder.rewindDeathMaxRetries = v.toInt()
+                "uiSearchWidth" -> holder.uiSearchWidth = v
+                "uiSearchHeight" -> holder.uiSearchHeight = v
+                "uiSearchRadius" -> holder.uiSearchRadius = v
+                "uiSwitchWidth" -> holder.uiSwitchWidth = v
+                "uiSwitchHeight" -> holder.uiSwitchHeight = v
+                "uiSwitchKnob" -> holder.uiSwitchKnob = v
+                "uiSwitchGradientAR" -> holder.uiSwitchGradientA = (holder.uiSwitchGradientA and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "uiSwitchGradientAG" -> holder.uiSwitchGradientA = (holder.uiSwitchGradientA and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "uiSwitchGradientAB" -> holder.uiSwitchGradientA = (holder.uiSwitchGradientA and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "uiSwitchGradientBR" -> holder.uiSwitchGradientB = (holder.uiSwitchGradientB and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "uiSwitchGradientBG" -> holder.uiSwitchGradientB = (holder.uiSwitchGradientB and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "uiSwitchGradientBB" -> holder.uiSwitchGradientB = (holder.uiSwitchGradientB and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "uiSwitchTrackOffR" -> holder.uiSwitchTrackOff = (holder.uiSwitchTrackOff and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "uiSwitchTrackOffG" -> holder.uiSwitchTrackOff = (holder.uiSwitchTrackOff and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "uiSwitchTrackOffB" -> holder.uiSwitchTrackOff = (holder.uiSwitchTrackOff and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "uiSwitchSlideTrackR" -> holder.uiSwitchSlideTrack = (holder.uiSwitchSlideTrack and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "uiSwitchSlideTrackG" -> holder.uiSwitchSlideTrack = (holder.uiSwitchSlideTrack and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "uiSwitchSlideTrackB" -> holder.uiSwitchSlideTrack = (holder.uiSwitchSlideTrack and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "uiSwitchSlideOffR" -> holder.uiSwitchSlideOff = (holder.uiSwitchSlideOff and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "uiSwitchSlideOffG" -> holder.uiSwitchSlideOff = (holder.uiSwitchSlideOff and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "uiSwitchSlideOffB" -> holder.uiSwitchSlideOff = (holder.uiSwitchSlideOff and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "uiSwitchSlideOnR" -> holder.uiSwitchSlideOn = (holder.uiSwitchSlideOn and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "uiSwitchSlideOnG" -> holder.uiSwitchSlideOn = (holder.uiSwitchSlideOn and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "uiSwitchSlideOnB" -> holder.uiSwitchSlideOn = (holder.uiSwitchSlideOn and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "uiSwitchTextTrackOffR" -> holder.uiSwitchTextTrackOff = (holder.uiSwitchTextTrackOff and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "uiSwitchTextTrackOffG" -> holder.uiSwitchTextTrackOff = (holder.uiSwitchTextTrackOff and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "uiSwitchTextTrackOffB" -> holder.uiSwitchTextTrackOff = (holder.uiSwitchTextTrackOff and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "uiSwitchTextTrackOnR" -> holder.uiSwitchTextTrackOn = (holder.uiSwitchTextTrackOn and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "uiSwitchTextTrackOnG" -> holder.uiSwitchTextTrackOn = (holder.uiSwitchTextTrackOn and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "uiSwitchTextTrackOnB" -> holder.uiSwitchTextTrackOn = (holder.uiSwitchTextTrackOn and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "uiSwitchTextKnobR" -> holder.uiSwitchTextKnob = (holder.uiSwitchTextKnob and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "uiSwitchTextKnobG" -> holder.uiSwitchTextKnob = (holder.uiSwitchTextKnob and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "uiSwitchTextKnobB" -> holder.uiSwitchTextKnob = (holder.uiSwitchTextKnob and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
+                "uiSwitchTextColorR" -> holder.uiSwitchTextColor = (holder.uiSwitchTextColor and 0xFF00FFFF.toInt()) or ((v.toInt() and 0xFF) shl 16)
+                "uiSwitchTextColorG" -> holder.uiSwitchTextColor = (holder.uiSwitchTextColor and 0xFFFF00FF.toInt()) or ((v.toInt() and 0xFF) shl 8)
+                "uiSwitchTextColorB" -> holder.uiSwitchTextColor = (holder.uiSwitchTextColor and 0xFFFFFF00.toInt()) or (v.toInt() and 0xFF)
             }
             if (id.startsWith("silkColor") && id.length == 11) {
                 val idx = id[9].digitToIntOrNull()
@@ -1053,372 +1578,42 @@ private fun ComposeTestContent(
                     setVoronoiColor(slot, channel, v)
                 }
             }
-            dirty = true
+            markDirty()
         }
 
         fun setText(id: String, v: String) {
-            if (id == "uiSwitchTextOn") uiSwitchTextOn = v
-            else if (id == "uiSwitchTextOff") uiSwitchTextOff = v
-            dirty = true
+            if (id == "uiSwitchTextOn") holder.uiSwitchTextOn = v
+            else if (id == "uiSwitchTextOff") holder.uiSwitchTextOff = v
+            markDirty()
         }
 
         fun setBall(v: Int) {
-            ballColor = v
-            ballColorCustom = false
-            dirty = true
+            holder.ballColor = v
+            holder.ballColorCustom = false
+            markDirty()
         }
 
         fun setCustomColor(v: Int) {
-            customColor = v
-            ballColorCustom = true
-            dirty = true
+            holder.customColor = v
+            holder.ballColorCustom = true
+            markDirty()
         }
 
-        fun currentState(): V9State = V9State(
-            enabled = enabled,
-            invulnerable = invulnerable,
-            grayScreen = grayScreen,
-            grayStrength = grayStrength,
-            grayAnimate = grayAnimate,
-            startAnim = startAnim,
-            endAnim = endAnim,
-            startDuration = startDuration,
-            endDuration = endDuration,
-            ballColor = ballColor,
-            ballColorCustom = ballColorCustom,
-            customColor = customColor,
-            particleSize = particleSize,
-            stopDuration = stopDuration,
-            triggerMode = triggerMode,
-            soundEnabled = soundEnabled,
-            cooldown = cooldown,
-            soundVolume = soundVolume,
-            particleAlpha = particleAlpha,
-            particleCount = particleCount,
-            particleSpin = particleSpin,
-            freezeSelf = freezeSelf,
-            stopRadius = stopRadius,
-            freezeEntities = freezeEntities,
-            freezeBlocks = freezeBlocks,
-            freezeFluids = freezeFluids,
-            freezeBossAI = freezeBossAI,
-            showMessage = showMessage,
-            grayStyle = grayStyle,
-            slashEnabled = slashEnabled,
-            slashDepthTest = slashDepthTest,
-            slashRandomAngle = slashRandomAngle,
-            slashGlow = slashGlow,
-            slashDuration = slashDuration,
-            slashLengthMult = slashLengthMult,
-            slashWidthRatio = slashWidthRatio,
-            slashThicknessRatio = slashThicknessRatio,
-            slashTipFade = slashTipFade,
-            slashStartScale = slashStartScale,
-            slashEndScale = slashEndScale,
-            slashCoreWidth = slashCoreWidth,
-            slashCoreShade = slashCoreShade,
-            slashEdgeWidth = slashEdgeWidth,
-            slashEdgeBrightness = slashEdgeBrightness,
-            slashGlowWidth = slashGlowWidth,
-            slashGlowStrength = slashGlowStrength,
-            slashNoiseStrength = slashNoiseStrength,
-            slashSweepSpeed = slashSweepSpeed,
-            slashSweepSoftness = slashSweepSoftness,
-            slashHoldFraction = slashHoldFraction,
-            slashFadeStart = slashFadeStart,
-            slashFadeDuration = slashFadeDuration,
-            slashSurfaceOffset = slashSurfaceOffset,
-            slashRollRange = slashRollRange,
-            slashCoreColor = slashCoreColor,
-            slashEdgeColor = slashEdgeColor,
-            slashGlowColor = slashGlowColor,
-            renderStyle = renderStyle,
-            silkColor0 = silkColor0,
-            silkColor1 = silkColor1,
-            silkColor2 = silkColor2,
-            silkColor3 = silkColor3,
-            silkColor4 = silkColor4,
-            silkColor5 = silkColor5,
-            silkColor6 = silkColor6,
-            silkColor7 = silkColor7,
-            silkBrightness = silkBrightness,
-            silkContrast = silkContrast,
-            silkSaturation = silkSaturation,
-            silkScale = silkScale,
-            silkIntensity = silkIntensity,
-            silkWarp = silkWarp,
-            silkDetail = silkDetail,
-            silkHue = silkHue,
-            silkSeed = silkSeed,
-            silkRotation = silkRotation,
-            silkDrift = silkDrift,
-            silkVignette = silkVignette,
-            silkBlur = silkBlur,
-            silkGrain = silkGrain,
-            tunnelSpeed = tunnelSpeed,
-            tunnelBrightness = tunnelBrightness,
-            tunnelDensity = tunnelDensity,
-            tunnelFov = tunnelFov,
-            voronoiColorCount = voronoiColorCount,
-            voronoiStepsPerColor = voronoiStepsPerColor,
-            voronoiColor0 = voronoiColor0,
-            voronoiColor1 = voronoiColor1,
-            voronoiColor2 = voronoiColor2,
-            voronoiColor3 = voronoiColor3,
-            voronoiColor4 = voronoiColor4,
-            voronoiColorGlow = voronoiColorGlow,
-            voronoiColorGap = voronoiColorGap,
-            voronoiDistortion = voronoiDistortion,
-            voronoiGap = voronoiGap,
-            voronoiGlow = voronoiGlow,
-            voronoiScale = voronoiScale,
-            voronoiFov = voronoiFov,
-            voronoiSpeed = voronoiSpeed,
-            voronoiRotation = voronoiRotation,
-            voronoiOffsetX = voronoiOffsetX,
-            voronoiOffsetY = voronoiOffsetY,
-            slashStarfield = slashStarfield,
-            slashStarDensity = slashStarDensity,
-            slashStarBrightness = slashStarBrightness,
-            slashStarSize = slashStarSize,
-            slashStarColorMode = slashStarColorMode,
-            uiTabVariant = uiTabVariant,
-            uiTabSize = uiTabSize,
-            uiTabCompact = uiTabCompact,
-            uiSliderHeight = uiSliderHeight,
-            uiSliderThumb = uiSliderThumb,
-            uiSearchStyle = uiSearchStyle,
-            uiSearchWidth = uiSearchWidth,
-            uiSearchHeight = uiSearchHeight,
-            uiSearchRadius = uiSearchRadius,
-            uiSwitchStyle = uiSwitchStyle,
-            uiSwitchWidth = uiSwitchWidth,
-            uiSwitchHeight = uiSwitchHeight,
-            uiSwitchKnob = uiSwitchKnob,
-            uiSwitchGradientA = uiSwitchGradientA,
-            uiSwitchGradientB = uiSwitchGradientB,
-            uiSwitchTrackOff = uiSwitchTrackOff,
-            uiSwitchSlideTrack = uiSwitchSlideTrack,
-            uiSwitchSlideOff = uiSwitchSlideOff,
-            uiSwitchSlideOn = uiSwitchSlideOn,
-            uiSwitchTextTrackOff = uiSwitchTextTrackOff,
-            uiSwitchTextTrackOn = uiSwitchTextTrackOn,
-            uiSwitchTextKnob = uiSwitchTextKnob,
-            uiSwitchTextColor = uiSwitchTextColor,
-            uiSwitchTextOn = uiSwitchTextOn,
-            uiSwitchTextOff = uiSwitchTextOff,
-            rewindEnabled = rewindEnabled,
-            rewindWindowSeconds = rewindWindowSeconds,
-            rewindScopeMode = rewindScopeMode,
-            rewindScope = rewindScope,
-            rewindRadius = rewindRadius,
-            rewindCooldownTicks = rewindCooldownTicks,
-            rewindPlaybackMode = rewindPlaybackMode,
-            rewindPlaybackSeconds = rewindPlaybackSeconds,
-            rewindRestoreOrder = rewindRestoreOrder,
-            rewindCameraMode = rewindCameraMode,
-            rewindPositionRewind = rewindPositionRewind,
-            rewindPositionMode = rewindPositionMode,
-            rewindPlayerState = rewindPlayerState,
-            rewindDeathEnabled = rewindDeathEnabled,
-            rewindDeathCooldownTicks = rewindDeathCooldownTicks,
-            rewindDeathMaxRetries = rewindDeathMaxRetries,
-            rewindSafetyCheckpoint = rewindSafetyCheckpoint,
-            rewindHostileCheck = rewindHostileCheck,
-            rewindOtherItemDeduct = rewindOtherItemDeduct,
-            rewindFreezeOthers = rewindFreezeOthers,
-            rewindTimestopStacking = rewindTimestopStacking,
-            rewindBlocks = rewindBlocks,
-            rewindBlockEntities = rewindBlockEntities,
-            rewindEntities = rewindEntities,
-            rewindItems = rewindItems,
-            rewindExperience = rewindExperience,
-            rewindTime = rewindTime,
-            rewindWeather = rewindWeather,
-            rewindRaids = rewindRaids,
-            rewindScoreboard = rewindScoreboard,
-            rewindWorldBorder = rewindWorldBorder,
-            rewindFreeCamRestorePosition = rewindFreeCamRestorePosition,
-            rewindShowStats = rewindShowStats
-        )
+        fun currentState(): V9State = holder.snapshot()
 
         fun savePreset() {
             onPresetSave(presetSlot, currentState())
         }
 
         fun apply(s: V9State) {
-            enabled = s.enabled
-            invulnerable = s.invulnerable
-            grayScreen = s.grayScreen
-            grayStrength = s.grayStrength
-            grayAnimate = s.grayAnimate
-            startAnim = s.startAnim
-            endAnim = s.endAnim
-            startDuration = s.startDuration
-            endDuration = s.endDuration
-            ballColor = s.ballColor
-            ballColorCustom = s.ballColorCustom
-            customColor = s.customColor
-            particleSize = s.particleSize
-            stopDuration = s.stopDuration
-            triggerMode = s.triggerMode
-            soundEnabled = s.soundEnabled
-            cooldown = s.cooldown
-            soundVolume = s.soundVolume
-            particleAlpha = s.particleAlpha
-            particleCount = s.particleCount
-            particleSpin = s.particleSpin
-            freezeSelf = s.freezeSelf
-            stopRadius = s.stopRadius
-            freezeEntities = s.freezeEntities
-            freezeBlocks = s.freezeBlocks
-            freezeFluids = s.freezeFluids
-            freezeBossAI = s.freezeBossAI
-            showMessage = s.showMessage
-            grayStyle = s.grayStyle
-            slashEnabled = s.slashEnabled
-            slashDepthTest = s.slashDepthTest
-            slashRandomAngle = s.slashRandomAngle
-            slashGlow = s.slashGlow
-            slashDuration = s.slashDuration
-            slashLengthMult = s.slashLengthMult
-            slashWidthRatio = s.slashWidthRatio
-            slashThicknessRatio = s.slashThicknessRatio
-            slashTipFade = s.slashTipFade
-            slashStartScale = s.slashStartScale
-            slashEndScale = s.slashEndScale
-            slashCoreWidth = s.slashCoreWidth
-            slashCoreShade = s.slashCoreShade
-            slashEdgeWidth = s.slashEdgeWidth
-            slashEdgeBrightness = s.slashEdgeBrightness
-            slashGlowWidth = s.slashGlowWidth
-            slashGlowStrength = s.slashGlowStrength
-            slashNoiseStrength = s.slashNoiseStrength
-            slashSweepSpeed = s.slashSweepSpeed
-            slashSweepSoftness = s.slashSweepSoftness
-            slashHoldFraction = s.slashHoldFraction
-            slashFadeStart = s.slashFadeStart
-            slashFadeDuration = s.slashFadeDuration
-            slashSurfaceOffset = s.slashSurfaceOffset
-            slashRollRange = s.slashRollRange
-            slashCoreColor = s.slashCoreColor
-            slashEdgeColor = s.slashEdgeColor
-            slashGlowColor = s.slashGlowColor
-            renderStyle = s.renderStyle
-            silkColor0 = s.silkColor0
-            silkColor1 = s.silkColor1
-            silkColor2 = s.silkColor2
-            silkColor3 = s.silkColor3
-            silkColor4 = s.silkColor4
-            silkColor5 = s.silkColor5
-            silkColor6 = s.silkColor6
-            silkColor7 = s.silkColor7
-            silkBrightness = s.silkBrightness
-            silkContrast = s.silkContrast
-            silkSaturation = s.silkSaturation
-            silkScale = s.silkScale
-            silkIntensity = s.silkIntensity
-            silkWarp = s.silkWarp
-            silkDetail = s.silkDetail
-            silkHue = s.silkHue
-            silkSeed = s.silkSeed
-            silkRotation = s.silkRotation
-            silkDrift = s.silkDrift
-            silkVignette = s.silkVignette
-            silkBlur = s.silkBlur
-            silkGrain = s.silkGrain
-            tunnelSpeed = s.tunnelSpeed
-            tunnelBrightness = s.tunnelBrightness
-            tunnelDensity = s.tunnelDensity
-            tunnelFov = s.tunnelFov
-            voronoiColorCount = s.voronoiColorCount
-            voronoiStepsPerColor = s.voronoiStepsPerColor
-            voronoiColor0 = s.voronoiColor0
-            voronoiColor1 = s.voronoiColor1
-            voronoiColor2 = s.voronoiColor2
-            voronoiColor3 = s.voronoiColor3
-            voronoiColor4 = s.voronoiColor4
-            voronoiColorGlow = s.voronoiColorGlow
-            voronoiColorGap = s.voronoiColorGap
-            voronoiDistortion = s.voronoiDistortion
-            voronoiGap = s.voronoiGap
-            voronoiGlow = s.voronoiGlow
-            voronoiScale = s.voronoiScale
-            voronoiFov = s.voronoiFov
-            voronoiSpeed = s.voronoiSpeed
-            voronoiRotation = s.voronoiRotation
-            voronoiOffsetX = s.voronoiOffsetX
-            voronoiOffsetY = s.voronoiOffsetY
-            slashStarfield = s.slashStarfield
-            slashStarDensity = s.slashStarDensity
-            slashStarBrightness = s.slashStarBrightness
-            slashStarSize = s.slashStarSize
-            slashStarColorMode = s.slashStarColorMode
-            uiTabVariant = s.uiTabVariant
-            uiTabSize = s.uiTabSize
-            uiTabCompact = s.uiTabCompact
-            uiSliderHeight = s.uiSliderHeight
-            uiSliderThumb = s.uiSliderThumb
-            uiSearchStyle = s.uiSearchStyle
-            uiSearchWidth = s.uiSearchWidth
-            uiSearchHeight = s.uiSearchHeight
-            uiSearchRadius = s.uiSearchRadius
-            uiSwitchStyle = s.uiSwitchStyle
-            uiSwitchWidth = s.uiSwitchWidth
-            uiSwitchHeight = s.uiSwitchHeight
-            uiSwitchKnob = s.uiSwitchKnob
-            uiSwitchGradientA = s.uiSwitchGradientA
-            uiSwitchGradientB = s.uiSwitchGradientB
-            uiSwitchTrackOff = s.uiSwitchTrackOff
-            uiSwitchSlideTrack = s.uiSwitchSlideTrack
-            uiSwitchSlideOff = s.uiSwitchSlideOff
-            uiSwitchSlideOn = s.uiSwitchSlideOn
-            uiSwitchTextTrackOff = s.uiSwitchTextTrackOff
-            uiSwitchTextTrackOn = s.uiSwitchTextTrackOn
-            uiSwitchTextKnob = s.uiSwitchTextKnob
-            uiSwitchTextColor = s.uiSwitchTextColor
-            uiSwitchTextOn = s.uiSwitchTextOn
-            uiSwitchTextOff = s.uiSwitchTextOff
-            rewindEnabled = s.rewindEnabled
-            rewindWindowSeconds = s.rewindWindowSeconds
-            rewindScopeMode = s.rewindScopeMode
-            rewindScope = s.rewindScope
-            rewindRadius = s.rewindRadius
-            rewindCooldownTicks = s.rewindCooldownTicks
-            rewindPlaybackMode = s.rewindPlaybackMode
-            rewindPlaybackSeconds = s.rewindPlaybackSeconds
-            rewindRestoreOrder = s.rewindRestoreOrder
-            rewindCameraMode = s.rewindCameraMode
-            rewindPositionRewind = s.rewindPositionRewind
-            rewindPositionMode = s.rewindPositionMode
-            rewindPlayerState = s.rewindPlayerState
-            rewindDeathEnabled = s.rewindDeathEnabled
-            rewindDeathCooldownTicks = s.rewindDeathCooldownTicks
-            rewindDeathMaxRetries = s.rewindDeathMaxRetries
-            rewindSafetyCheckpoint = s.rewindSafetyCheckpoint
-            rewindHostileCheck = s.rewindHostileCheck
-            rewindOtherItemDeduct = s.rewindOtherItemDeduct
-            rewindFreezeOthers = s.rewindFreezeOthers
-            rewindTimestopStacking = s.rewindTimestopStacking
-            rewindBlocks = s.rewindBlocks
-            rewindBlockEntities = s.rewindBlockEntities
-            rewindEntities = s.rewindEntities
-            rewindItems = s.rewindItems
-            rewindExperience = s.rewindExperience
-            rewindTime = s.rewindTime
-            rewindWeather = s.rewindWeather
-            rewindRaids = s.rewindRaids
-            rewindScoreboard = s.rewindScoreboard
-            rewindWorldBorder = s.rewindWorldBorder
-            rewindFreeCamRestorePosition = s.rewindFreeCamRestorePosition
-            rewindShowStats = s.rewindShowStats
+            holder.restore(s)
         }
 
         fun loadPreset(slot: Int) {
             onPresetLoad(slot)?.let {
                 presetSlot = slot
                 apply(it)
-                dirty = true
+                markDirty()
             }
         }
 
@@ -1430,314 +1625,335 @@ private fun ComposeTestContent(
 
         fun resetDefaults() {
             apply(defaults)
-            dirty = true
+            markDirty()
         }
 
         fun resetWeaponDefaults() {
-            renderStyle = defaults.renderStyle
-            silkColor0 = defaults.silkColor0
-            silkColor1 = defaults.silkColor1
-            silkColor2 = defaults.silkColor2
-            silkColor3 = defaults.silkColor3
-            silkColor4 = defaults.silkColor4
-            silkColor5 = defaults.silkColor5
-            silkColor6 = defaults.silkColor6
-            silkColor7 = defaults.silkColor7
-            silkBrightness = defaults.silkBrightness
-            silkContrast = defaults.silkContrast
-            silkSaturation = defaults.silkSaturation
-            silkScale = defaults.silkScale
-            silkIntensity = defaults.silkIntensity
-            silkWarp = defaults.silkWarp
-            silkDetail = defaults.silkDetail
-            silkHue = defaults.silkHue
-            silkSeed = defaults.silkSeed
-            silkRotation = defaults.silkRotation
-            silkDrift = defaults.silkDrift
-            silkVignette = defaults.silkVignette
-            silkBlur = defaults.silkBlur
-            silkGrain = defaults.silkGrain
-            tunnelSpeed = defaults.tunnelSpeed
-            tunnelBrightness = defaults.tunnelBrightness
-            tunnelDensity = defaults.tunnelDensity
-            tunnelFov = defaults.tunnelFov
-            voronoiColorCount = defaults.voronoiColorCount
-            voronoiStepsPerColor = defaults.voronoiStepsPerColor
-            voronoiColor0 = defaults.voronoiColor0
-            voronoiColor1 = defaults.voronoiColor1
-            voronoiColor2 = defaults.voronoiColor2
-            voronoiColor3 = defaults.voronoiColor3
-            voronoiColor4 = defaults.voronoiColor4
-            voronoiColorGlow = defaults.voronoiColorGlow
-            voronoiColorGap = defaults.voronoiColorGap
-            voronoiDistortion = defaults.voronoiDistortion
-            voronoiGap = defaults.voronoiGap
-            voronoiGlow = defaults.voronoiGlow
-            voronoiScale = defaults.voronoiScale
-            voronoiFov = defaults.voronoiFov
-            voronoiSpeed = defaults.voronoiSpeed
-            voronoiRotation = defaults.voronoiRotation
-            voronoiOffsetX = defaults.voronoiOffsetX
-            voronoiOffsetY = defaults.voronoiOffsetY
-            dirty = true
+            holder.renderStyle = defaults.renderStyle
+            holder.silkColor0 = defaults.silkColor0
+            holder.silkColor1 = defaults.silkColor1
+            holder.silkColor2 = defaults.silkColor2
+            holder.silkColor3 = defaults.silkColor3
+            holder.silkColor4 = defaults.silkColor4
+            holder.silkColor5 = defaults.silkColor5
+            holder.silkColor6 = defaults.silkColor6
+            holder.silkColor7 = defaults.silkColor7
+            holder.silkBrightness = defaults.silkBrightness
+            holder.silkContrast = defaults.silkContrast
+            holder.silkSaturation = defaults.silkSaturation
+            holder.silkScale = defaults.silkScale
+            holder.silkIntensity = defaults.silkIntensity
+            holder.silkWarp = defaults.silkWarp
+            holder.silkDetail = defaults.silkDetail
+            holder.silkHue = defaults.silkHue
+            holder.silkSeed = defaults.silkSeed
+            holder.silkRotation = defaults.silkRotation
+            holder.silkDrift = defaults.silkDrift
+            holder.silkVignette = defaults.silkVignette
+            holder.silkBlur = defaults.silkBlur
+            holder.silkGrain = defaults.silkGrain
+            holder.tunnelSpeed = defaults.tunnelSpeed
+            holder.tunnelBrightness = defaults.tunnelBrightness
+            holder.tunnelDensity = defaults.tunnelDensity
+            holder.tunnelFov = defaults.tunnelFov
+            holder.voronoiColorCount = defaults.voronoiColorCount
+            holder.voronoiStepsPerColor = defaults.voronoiStepsPerColor
+            holder.voronoiColor0 = defaults.voronoiColor0
+            holder.voronoiColor1 = defaults.voronoiColor1
+            holder.voronoiColor2 = defaults.voronoiColor2
+            holder.voronoiColor3 = defaults.voronoiColor3
+            holder.voronoiColor4 = defaults.voronoiColor4
+            holder.voronoiColorGlow = defaults.voronoiColorGlow
+            holder.voronoiColorGap = defaults.voronoiColorGap
+            holder.voronoiDistortion = defaults.voronoiDistortion
+            holder.voronoiGap = defaults.voronoiGap
+            holder.voronoiGlow = defaults.voronoiGlow
+            holder.voronoiScale = defaults.voronoiScale
+            holder.voronoiFov = defaults.voronoiFov
+            holder.voronoiSpeed = defaults.voronoiSpeed
+            holder.voronoiRotation = defaults.voronoiRotation
+            holder.voronoiOffsetX = defaults.voronoiOffsetX
+            holder.voronoiOffsetY = defaults.voronoiOffsetY
+            markDirty()
         }
 
         fun resetSilkDefaults() {
-            silkColor0 = defaults.silkColor0
-            silkColor1 = defaults.silkColor1
-            silkColor2 = defaults.silkColor2
-            silkColor3 = defaults.silkColor3
-            silkColor4 = defaults.silkColor4
-            silkColor5 = defaults.silkColor5
-            silkColor6 = defaults.silkColor6
-            silkColor7 = defaults.silkColor7
-            silkBrightness = defaults.silkBrightness
-            silkContrast = defaults.silkContrast
-            silkSaturation = defaults.silkSaturation
-            silkScale = defaults.silkScale
-            silkIntensity = defaults.silkIntensity
-            silkWarp = defaults.silkWarp
-            silkDetail = defaults.silkDetail
-            silkHue = defaults.silkHue
-            silkSeed = defaults.silkSeed
-            silkRotation = defaults.silkRotation
-            silkDrift = defaults.silkDrift
-            silkVignette = defaults.silkVignette
-            silkBlur = defaults.silkBlur
-            silkGrain = defaults.silkGrain
-            dirty = true
+            holder.silkColor0 = defaults.silkColor0
+            holder.silkColor1 = defaults.silkColor1
+            holder.silkColor2 = defaults.silkColor2
+            holder.silkColor3 = defaults.silkColor3
+            holder.silkColor4 = defaults.silkColor4
+            holder.silkColor5 = defaults.silkColor5
+            holder.silkColor6 = defaults.silkColor6
+            holder.silkColor7 = defaults.silkColor7
+            holder.silkBrightness = defaults.silkBrightness
+            holder.silkContrast = defaults.silkContrast
+            holder.silkSaturation = defaults.silkSaturation
+            holder.silkScale = defaults.silkScale
+            holder.silkIntensity = defaults.silkIntensity
+            holder.silkWarp = defaults.silkWarp
+            holder.silkDetail = defaults.silkDetail
+            holder.silkHue = defaults.silkHue
+            holder.silkSeed = defaults.silkSeed
+            holder.silkRotation = defaults.silkRotation
+            holder.silkDrift = defaults.silkDrift
+            holder.silkVignette = defaults.silkVignette
+            holder.silkBlur = defaults.silkBlur
+            holder.silkGrain = defaults.silkGrain
+            markDirty()
         }
 
         fun resetTunnelDefaults() {
-            tunnelSpeed = defaults.tunnelSpeed
-            tunnelBrightness = defaults.tunnelBrightness
-            tunnelDensity = defaults.tunnelDensity
-            tunnelFov = defaults.tunnelFov
-            dirty = true
+            holder.tunnelSpeed = defaults.tunnelSpeed
+            holder.tunnelBrightness = defaults.tunnelBrightness
+            holder.tunnelDensity = defaults.tunnelDensity
+            holder.tunnelFov = defaults.tunnelFov
+            markDirty()
         }
 
         fun resetVoronoiDefaults() {
-            voronoiColorCount = defaults.voronoiColorCount
-            voronoiStepsPerColor = defaults.voronoiStepsPerColor
-            voronoiColor0 = defaults.voronoiColor0
-            voronoiColor1 = defaults.voronoiColor1
-            voronoiColor2 = defaults.voronoiColor2
-            voronoiColor3 = defaults.voronoiColor3
-            voronoiColor4 = defaults.voronoiColor4
-            voronoiColorGlow = defaults.voronoiColorGlow
-            voronoiColorGap = defaults.voronoiColorGap
-            voronoiDistortion = defaults.voronoiDistortion
-            voronoiGap = defaults.voronoiGap
-            voronoiGlow = defaults.voronoiGlow
-            voronoiScale = defaults.voronoiScale
-            voronoiFov = defaults.voronoiFov
-            voronoiSpeed = defaults.voronoiSpeed
-            voronoiRotation = defaults.voronoiRotation
-            voronoiOffsetX = defaults.voronoiOffsetX
-            voronoiOffsetY = defaults.voronoiOffsetY
-            dirty = true
+            holder.voronoiColorCount = defaults.voronoiColorCount
+            holder.voronoiStepsPerColor = defaults.voronoiStepsPerColor
+            holder.voronoiColor0 = defaults.voronoiColor0
+            holder.voronoiColor1 = defaults.voronoiColor1
+            holder.voronoiColor2 = defaults.voronoiColor2
+            holder.voronoiColor3 = defaults.voronoiColor3
+            holder.voronoiColor4 = defaults.voronoiColor4
+            holder.voronoiColorGlow = defaults.voronoiColorGlow
+            holder.voronoiColorGap = defaults.voronoiColorGap
+            holder.voronoiDistortion = defaults.voronoiDistortion
+            holder.voronoiGap = defaults.voronoiGap
+            holder.voronoiGlow = defaults.voronoiGlow
+            holder.voronoiScale = defaults.voronoiScale
+            holder.voronoiFov = defaults.voronoiFov
+            holder.voronoiSpeed = defaults.voronoiSpeed
+            holder.voronoiRotation = defaults.voronoiRotation
+            holder.voronoiOffsetX = defaults.voronoiOffsetX
+            holder.voronoiOffsetY = defaults.voronoiOffsetY
+            markDirty()
         }
 
         fun resetSlashDefaults() {
-            slashEnabled = defaults.slashEnabled
-            slashDepthTest = defaults.slashDepthTest
-            slashRandomAngle = defaults.slashRandomAngle
-            slashGlow = defaults.slashGlow
-            slashDuration = defaults.slashDuration
-            slashLengthMult = defaults.slashLengthMult
-            slashWidthRatio = defaults.slashWidthRatio
-            slashThicknessRatio = defaults.slashThicknessRatio
-            slashTipFade = defaults.slashTipFade
-            slashStartScale = defaults.slashStartScale
-            slashEndScale = defaults.slashEndScale
-            slashCoreWidth = defaults.slashCoreWidth
-            slashCoreShade = defaults.slashCoreShade
-            slashEdgeWidth = defaults.slashEdgeWidth
-            slashEdgeBrightness = defaults.slashEdgeBrightness
-            slashGlowWidth = defaults.slashGlowWidth
-            slashGlowStrength = defaults.slashGlowStrength
-            slashNoiseStrength = defaults.slashNoiseStrength
-            slashSweepSpeed = defaults.slashSweepSpeed
-            slashSweepSoftness = defaults.slashSweepSoftness
-            slashHoldFraction = defaults.slashHoldFraction
-            slashFadeStart = defaults.slashFadeStart
-            slashFadeDuration = defaults.slashFadeDuration
-            slashSurfaceOffset = defaults.slashSurfaceOffset
-            slashRollRange = defaults.slashRollRange
-            slashCoreColor = defaults.slashCoreColor
-            slashEdgeColor = defaults.slashEdgeColor
-            slashGlowColor = defaults.slashGlowColor
-            slashStarfield = defaults.slashStarfield
-            slashStarDensity = defaults.slashStarDensity
-            slashStarBrightness = defaults.slashStarBrightness
-            slashStarSize = defaults.slashStarSize
-            slashStarColorMode = defaults.slashStarColorMode
-            dirty = true
+            holder.slashEnabled = defaults.slashEnabled
+            holder.slashDepthTest = defaults.slashDepthTest
+            holder.slashRandomAngle = defaults.slashRandomAngle
+            holder.slashGlow = defaults.slashGlow
+            holder.slashDuration = defaults.slashDuration
+            holder.slashLengthMult = defaults.slashLengthMult
+            holder.slashWidthRatio = defaults.slashWidthRatio
+            holder.slashThicknessRatio = defaults.slashThicknessRatio
+            holder.slashTipFade = defaults.slashTipFade
+            holder.slashStartScale = defaults.slashStartScale
+            holder.slashEndScale = defaults.slashEndScale
+            holder.slashCoreWidth = defaults.slashCoreWidth
+            holder.slashCoreShade = defaults.slashCoreShade
+            holder.slashEdgeWidth = defaults.slashEdgeWidth
+            holder.slashEdgeBrightness = defaults.slashEdgeBrightness
+            holder.slashGlowWidth = defaults.slashGlowWidth
+            holder.slashGlowStrength = defaults.slashGlowStrength
+            holder.slashNoiseStrength = defaults.slashNoiseStrength
+            holder.slashSweepSpeed = defaults.slashSweepSpeed
+            holder.slashSweepSoftness = defaults.slashSweepSoftness
+            holder.slashHoldFraction = defaults.slashHoldFraction
+            holder.slashFadeStart = defaults.slashFadeStart
+            holder.slashFadeDuration = defaults.slashFadeDuration
+            holder.slashSurfaceOffset = defaults.slashSurfaceOffset
+            holder.slashRollRange = defaults.slashRollRange
+            holder.slashCoreColor = defaults.slashCoreColor
+            holder.slashEdgeColor = defaults.slashEdgeColor
+            holder.slashGlowColor = defaults.slashGlowColor
+            holder.slashStarfield = defaults.slashStarfield
+            holder.slashStarDensity = defaults.slashStarDensity
+            holder.slashStarBrightness = defaults.slashStarBrightness
+            holder.slashStarSize = defaults.slashStarSize
+            holder.slashStarColorMode = defaults.slashStarColorMode
+            markDirty()
         }
 
         fun resetSlashBaseDefaults() {
-            slashEnabled = defaults.slashEnabled
-            slashDepthTest = defaults.slashDepthTest
-            slashRandomAngle = defaults.slashRandomAngle
-            slashGlow = defaults.slashGlow
-            slashDuration = defaults.slashDuration
-            slashLengthMult = defaults.slashLengthMult
-            slashWidthRatio = defaults.slashWidthRatio
-            slashThicknessRatio = defaults.slashThicknessRatio
-            slashTipFade = defaults.slashTipFade
-            slashStartScale = defaults.slashStartScale
-            slashEndScale = defaults.slashEndScale
-            dirty = true
+            holder.slashEnabled = defaults.slashEnabled
+            holder.slashDepthTest = defaults.slashDepthTest
+            holder.slashRandomAngle = defaults.slashRandomAngle
+            holder.slashGlow = defaults.slashGlow
+            holder.slashDuration = defaults.slashDuration
+            holder.slashLengthMult = defaults.slashLengthMult
+            holder.slashWidthRatio = defaults.slashWidthRatio
+            holder.slashThicknessRatio = defaults.slashThicknessRatio
+            holder.slashTipFade = defaults.slashTipFade
+            holder.slashStartScale = defaults.slashStartScale
+            holder.slashEndScale = defaults.slashEndScale
+            markDirty()
         }
 
         fun resetSlashVisualDefaults() {
-            slashCoreWidth = defaults.slashCoreWidth
-            slashCoreShade = defaults.slashCoreShade
-            slashEdgeWidth = defaults.slashEdgeWidth
-            slashEdgeBrightness = defaults.slashEdgeBrightness
-            slashGlowWidth = defaults.slashGlowWidth
-            slashGlowStrength = defaults.slashGlowStrength
-            slashNoiseStrength = defaults.slashNoiseStrength
-            slashCoreColor = defaults.slashCoreColor
-            slashEdgeColor = defaults.slashEdgeColor
-            slashGlowColor = defaults.slashGlowColor
-            dirty = true
+            holder.slashCoreWidth = defaults.slashCoreWidth
+            holder.slashCoreShade = defaults.slashCoreShade
+            holder.slashEdgeWidth = defaults.slashEdgeWidth
+            holder.slashEdgeBrightness = defaults.slashEdgeBrightness
+            holder.slashGlowWidth = defaults.slashGlowWidth
+            holder.slashGlowStrength = defaults.slashGlowStrength
+            holder.slashNoiseStrength = defaults.slashNoiseStrength
+            holder.slashCoreColor = defaults.slashCoreColor
+            holder.slashEdgeColor = defaults.slashEdgeColor
+            holder.slashGlowColor = defaults.slashGlowColor
+            markDirty()
         }
 
         fun resetSlashAnimDefaults() {
-            slashSweepSpeed = defaults.slashSweepSpeed
-            slashSweepSoftness = defaults.slashSweepSoftness
-            slashHoldFraction = defaults.slashHoldFraction
-            slashFadeStart = defaults.slashFadeStart
-            slashFadeDuration = defaults.slashFadeDuration
-            slashSurfaceOffset = defaults.slashSurfaceOffset
-            slashRollRange = defaults.slashRollRange
-            dirty = true
+            holder.slashSweepSpeed = defaults.slashSweepSpeed
+            holder.slashSweepSoftness = defaults.slashSweepSoftness
+            holder.slashHoldFraction = defaults.slashHoldFraction
+            holder.slashFadeStart = defaults.slashFadeStart
+            holder.slashFadeDuration = defaults.slashFadeDuration
+            holder.slashSurfaceOffset = defaults.slashSurfaceOffset
+            holder.slashRollRange = defaults.slashRollRange
+            markDirty()
         }
 
         fun resetSlashStarDefaults() {
-            slashStarfield = defaults.slashStarfield
-            slashStarDensity = defaults.slashStarDensity
-            slashStarBrightness = defaults.slashStarBrightness
-            slashStarSize = defaults.slashStarSize
-            slashStarColorMode = defaults.slashStarColorMode
-            dirty = true
+            holder.slashStarfield = defaults.slashStarfield
+            holder.slashStarDensity = defaults.slashStarDensity
+            holder.slashStarBrightness = defaults.slashStarBrightness
+            holder.slashStarSize = defaults.slashStarSize
+            holder.slashStarColorMode = defaults.slashStarColorMode
+            markDirty()
         }
 
         fun resetUiTabDefaults() {
-            uiTabVariant = defaults.uiTabVariant
-            uiTabSize = defaults.uiTabSize
-            uiTabCompact = defaults.uiTabCompact
-            dirty = true
+            holder.uiTabVariant = defaults.uiTabVariant
+            holder.uiTabSize = defaults.uiTabSize
+            holder.uiTabCompact = defaults.uiTabCompact
+            markDirty()
         }
 
         fun resetUiSliderDefaults() {
-            uiSliderHeight = defaults.uiSliderHeight
-            uiSliderThumb = defaults.uiSliderThumb
-            dirty = true
+            holder.uiSliderHeight = defaults.uiSliderHeight
+            holder.uiSliderThumb = defaults.uiSliderThumb
+            markDirty()
         }
 
         fun resetUiSearchDefaults() {
-            uiSearchStyle = defaults.uiSearchStyle
-            uiSearchWidth = defaults.uiSearchWidth
-            uiSearchHeight = defaults.uiSearchHeight
-            uiSearchRadius = defaults.uiSearchRadius
-            dirty = true
+            holder.uiSearchStyle = defaults.uiSearchStyle
+            holder.uiSearchWidth = defaults.uiSearchWidth
+            holder.uiSearchHeight = defaults.uiSearchHeight
+            holder.uiSearchRadius = defaults.uiSearchRadius
+            markDirty()
         }
 
         fun resetUiSwitchDefaults() {
-            uiSwitchStyle = defaults.uiSwitchStyle
-            uiSwitchWidth = defaults.uiSwitchWidth
-            uiSwitchHeight = defaults.uiSwitchHeight
-            uiSwitchKnob = defaults.uiSwitchKnob
-            uiSwitchGradientA = defaults.uiSwitchGradientA
-            uiSwitchGradientB = defaults.uiSwitchGradientB
-            uiSwitchTrackOff = defaults.uiSwitchTrackOff
-            uiSwitchSlideTrack = defaults.uiSwitchSlideTrack
-            uiSwitchSlideOff = defaults.uiSwitchSlideOff
-            uiSwitchSlideOn = defaults.uiSwitchSlideOn
-            uiSwitchTextTrackOff = defaults.uiSwitchTextTrackOff
-            uiSwitchTextTrackOn = defaults.uiSwitchTextTrackOn
-            uiSwitchTextKnob = defaults.uiSwitchTextKnob
-            uiSwitchTextColor = defaults.uiSwitchTextColor
-            uiSwitchTextOn = defaults.uiSwitchTextOn
-            uiSwitchTextOff = defaults.uiSwitchTextOff
-            dirty = true
+            holder.uiSwitchStyle = defaults.uiSwitchStyle
+            holder.uiSwitchWidth = defaults.uiSwitchWidth
+            holder.uiSwitchHeight = defaults.uiSwitchHeight
+            holder.uiSwitchKnob = defaults.uiSwitchKnob
+            holder.uiSwitchGradientA = defaults.uiSwitchGradientA
+            holder.uiSwitchGradientB = defaults.uiSwitchGradientB
+            holder.uiSwitchTrackOff = defaults.uiSwitchTrackOff
+            holder.uiSwitchSlideTrack = defaults.uiSwitchSlideTrack
+            holder.uiSwitchSlideOff = defaults.uiSwitchSlideOff
+            holder.uiSwitchSlideOn = defaults.uiSwitchSlideOn
+            holder.uiSwitchTextTrackOff = defaults.uiSwitchTextTrackOff
+            holder.uiSwitchTextTrackOn = defaults.uiSwitchTextTrackOn
+            holder.uiSwitchTextKnob = defaults.uiSwitchTextKnob
+            holder.uiSwitchTextColor = defaults.uiSwitchTextColor
+            holder.uiSwitchTextOn = defaults.uiSwitchTextOn
+            holder.uiSwitchTextOff = defaults.uiSwitchTextOff
+            holder.domainRadius = defaults.domainRadius
+            markDirty()
         }
 
         fun resetTimestopDefaults() {
-            enabled = defaults.enabled
-            invulnerable = defaults.invulnerable
-            grayScreen = defaults.grayScreen
-            grayStrength = defaults.grayStrength
-            grayAnimate = defaults.grayAnimate
-            startAnim = defaults.startAnim
-            endAnim = defaults.endAnim
-            startDuration = defaults.startDuration
-            endDuration = defaults.endDuration
-            ballColor = defaults.ballColor
-            ballColorCustom = defaults.ballColorCustom
-            customColor = defaults.customColor
-            particleSize = defaults.particleSize
-            stopDuration = defaults.stopDuration
-            triggerMode = defaults.triggerMode
-            soundEnabled = defaults.soundEnabled
-            cooldown = defaults.cooldown
-            soundVolume = defaults.soundVolume
-            particleAlpha = defaults.particleAlpha
-            particleCount = defaults.particleCount
-            particleSpin = defaults.particleSpin
-            freezeSelf = defaults.freezeSelf
-            stopRadius = defaults.stopRadius
-            freezeEntities = defaults.freezeEntities
-            freezeBlocks = defaults.freezeBlocks
-            freezeFluids = defaults.freezeFluids
-            freezeBossAI = defaults.freezeBossAI
-            showMessage = defaults.showMessage
-            grayStyle = defaults.grayStyle
-            dirty = true
+            holder.enabled = defaults.enabled
+            holder.invulnerable = defaults.invulnerable
+            holder.grayScreen = defaults.grayScreen
+            holder.grayStrength = defaults.grayStrength
+            holder.grayAnimate = defaults.grayAnimate
+            holder.startAnim = defaults.startAnim
+            holder.endAnim = defaults.endAnim
+            holder.startDuration = defaults.startDuration
+            holder.endDuration = defaults.endDuration
+            holder.ballColor = defaults.ballColor
+            holder.ballColorCustom = defaults.ballColorCustom
+            holder.customColor = defaults.customColor
+            holder.particleSize = defaults.particleSize
+            holder.stopDuration = defaults.stopDuration
+            holder.triggerMode = defaults.triggerMode
+            holder.soundEnabled = defaults.soundEnabled
+            holder.cooldown = defaults.cooldown
+            holder.soundVolume = defaults.soundVolume
+            holder.particleAlpha = defaults.particleAlpha
+            holder.particleCount = defaults.particleCount
+            holder.particleSpin = defaults.particleSpin
+            holder.freezeSelf = defaults.freezeSelf
+            holder.stopRadius = defaults.stopRadius
+            holder.freezeEntities = defaults.freezeEntities
+            holder.freezeBlocks = defaults.freezeBlocks
+            holder.freezeFluids = defaults.freezeFluids
+            holder.freezeBossAI = defaults.freezeBossAI
+            holder.showMessage = defaults.showMessage
+            holder.grayStyle = defaults.grayStyle
+            markDirty()
         }
 
         fun resetRewindDefaults() {
-            rewindEnabled = defaults.rewindEnabled
-            rewindWindowSeconds = defaults.rewindWindowSeconds
-            rewindScopeMode = defaults.rewindScopeMode
-            rewindScope = defaults.rewindScope
-            rewindRadius = defaults.rewindRadius
-            rewindCooldownTicks = defaults.rewindCooldownTicks
-            rewindPlaybackMode = defaults.rewindPlaybackMode
-            rewindPlaybackSeconds = defaults.rewindPlaybackSeconds
-            rewindRestoreOrder = defaults.rewindRestoreOrder
-            rewindCameraMode = defaults.rewindCameraMode
-            rewindPositionRewind = defaults.rewindPositionRewind
-            rewindPositionMode = defaults.rewindPositionMode
-            rewindPlayerState = defaults.rewindPlayerState
-            rewindDeathEnabled = defaults.rewindDeathEnabled
-            rewindDeathCooldownTicks = defaults.rewindDeathCooldownTicks
-            rewindDeathMaxRetries = defaults.rewindDeathMaxRetries
-            rewindSafetyCheckpoint = defaults.rewindSafetyCheckpoint
-            rewindHostileCheck = defaults.rewindHostileCheck
-            rewindOtherItemDeduct = defaults.rewindOtherItemDeduct
-            rewindFreezeOthers = defaults.rewindFreezeOthers
-            rewindTimestopStacking = defaults.rewindTimestopStacking
-            rewindBlocks = defaults.rewindBlocks
-            rewindBlockEntities = defaults.rewindBlockEntities
-            rewindEntities = defaults.rewindEntities
-            rewindItems = defaults.rewindItems
-            rewindExperience = defaults.rewindExperience
-            rewindTime = defaults.rewindTime
-            rewindWeather = defaults.rewindWeather
-            rewindRaids = defaults.rewindRaids
-            rewindScoreboard = defaults.rewindScoreboard
-            rewindWorldBorder = defaults.rewindWorldBorder
-            rewindFreeCamRestorePosition = defaults.rewindFreeCamRestorePosition
-            rewindShowStats = defaults.rewindShowStats
-            dirty = true
+            holder.rewindEnabled = defaults.rewindEnabled
+            holder.rewindWindowSeconds = defaults.rewindWindowSeconds
+            holder.rewindScopeMode = defaults.rewindScopeMode
+            holder.rewindScope = defaults.rewindScope
+            holder.rewindRadius = defaults.rewindRadius
+            holder.rewindCooldownTicks = defaults.rewindCooldownTicks
+            holder.rewindPlaybackMode = defaults.rewindPlaybackMode
+            holder.rewindPlaybackSeconds = defaults.rewindPlaybackSeconds
+            holder.rewindRestoreOrder = defaults.rewindRestoreOrder
+            holder.rewindCameraMode = defaults.rewindCameraMode
+            holder.rewindPositionRewind = defaults.rewindPositionRewind
+            holder.rewindPositionMode = defaults.rewindPositionMode
+            holder.rewindPlayerState = defaults.rewindPlayerState
+            holder.rewindDeathEnabled = defaults.rewindDeathEnabled
+            holder.rewindDeathCooldownTicks = defaults.rewindDeathCooldownTicks
+            holder.rewindDeathMaxRetries = defaults.rewindDeathMaxRetries
+            holder.rewindSafetyCheckpoint = defaults.rewindSafetyCheckpoint
+            holder.rewindHostileCheck = defaults.rewindHostileCheck
+            holder.rewindOtherItemDeduct = defaults.rewindOtherItemDeduct
+            holder.rewindFreezeOthers = defaults.rewindFreezeOthers
+            holder.rewindTimestopStacking = defaults.rewindTimestopStacking
+            holder.rewindBlocks = defaults.rewindBlocks
+            holder.rewindBlockEntities = defaults.rewindBlockEntities
+            holder.rewindEntities = defaults.rewindEntities
+            holder.rewindItems = defaults.rewindItems
+            holder.rewindExperience = defaults.rewindExperience
+            holder.rewindTime = defaults.rewindTime
+            holder.rewindWeather = defaults.rewindWeather
+            holder.rewindRaids = defaults.rewindRaids
+            holder.rewindScoreboard = defaults.rewindScoreboard
+            holder.rewindWorldBorder = defaults.rewindWorldBorder
+            holder.rewindFreeCamRestorePosition = defaults.rewindFreeCamRestorePosition
+            holder.rewindShowStats = defaults.rewindShowStats
+            markDirty()
         }
 
         fun save() {
             onSave(currentState())
             dirty = false
+        }
+
+        fun saveAndClose() {
+            save()
+            Minecraft.getInstance().setScreen(null)
+        }
+
+        /** Closing without saving is enough: removed() rolls the client copy back to the baseline. */
+        fun discardAndClose() {
+            Minecraft.getInstance().setScreen(null)
+        }
+
+        LaunchedEffect(dirty) { unsaved.value = dirty }
+
+        // Live preview. The world renderers read this same stack, so a debounced client-side write
+        // shows edits immediately without spamming the server with a packet per drag event.
+        LaunchedEffect(revision) {
+            if (revision == 0) return@LaunchedEffect
+            delay(140)
+            onPreview(currentState())
         }
 
         fun quote(): String = quotes[LocalDate.now().dayOfYear % quotes.size]
@@ -1748,48 +1964,22 @@ private fun ComposeTestContent(
                 q.isEmpty() || it.name.lowercase().contains(q) || it.desc.lowercase().contains(q)
             }
         }.filter { it.second.isNotEmpty() && navSections[selectedNav]?.contains(it.first.name) == true }
-        val previewColor: Long = if (ballColorCustom) {
-            customColor.toLong() and 0xFFFFFFFFL
-        } else {
-            ballColors[ballColor]
-        }
-        val uiPrefs = V9UiPrefs(
-            sliderHeight = when (uiSliderHeight) { 0 -> 20.dp; 2 -> 28.dp; else -> 24.dp },
-            sliderThumb = when (uiSliderThumb) { 0 -> 16.dp; 2 -> 20.dp; else -> 18.dp },
-            searchStyle = uiSearchStyle,
-            searchWidth = uiSearchWidth.dp,
-            searchHeight = uiSearchHeight.dp,
-            searchRadius = uiSearchRadius.dp,
-            switchStyle = uiSwitchStyle,
-            switchWidth = uiSwitchWidth.dp,
-            switchHeight = uiSwitchHeight.dp,
-            switchKnob = uiSwitchKnob.dp,
-            switchGradientA = uiSwitchGradientA,
-            switchGradientB = uiSwitchGradientB,
-            switchTrackOff = uiSwitchTrackOff,
-            switchSlideTrack = uiSwitchSlideTrack,
-            switchSlideOff = uiSwitchSlideOff,
-            switchSlideOn = uiSwitchSlideOn,
-            switchTextTrackOff = uiSwitchTextTrackOff,
-            switchTextTrackOn = uiSwitchTextTrackOn,
-            switchTextKnob = uiSwitchTextKnob,
-            switchTextColor = uiSwitchTextColor,
-            switchTextOn = uiSwitchTextOn,
-            switchTextOff = uiSwitchTextOff
-        )
-
-        CompositionLocalProvider(LocalV9UiPrefs provides uiPrefs) {
-            BoxWithConstraints(Modifier.fillMaxSize().background(Color(0x990B0D11))) {
+        val panelScrolls = remember { mutableStateMapOf<String, ScrollState>() }
+        CompositionLocalProvider(
+            LocalV9UiPrefs provides V9UiPrefs(holder),
+            LocalPanelScrolls provides panelScrolls
+        ) {
+            BoxWithConstraints(Modifier.fillMaxSize().background(Ui.surface0.copy(alpha = 0.60f))) {
             val availableWidth = maxWidth
             val availableHeight = maxHeight
             val winW = if (availableWidth >= 200.dp) (availableWidth - 16.dp).coerceAtMost(840.dp) else availableWidth
             val winH = if (availableHeight >= 200.dp) (availableHeight - 16.dp).coerceAtMost(480.dp) else availableHeight
             Surface(
                 modifier = Modifier.align(Alignment.Center).width(winW).height(winH)
-                    .shadow(16.dp, RoundedCornerShape(20.dp), ambientColor = Color(0x40000000), spotColor = Color(0x33FF7A5C)),
+                    .shadow(16.dp, RoundedCornerShape(20.dp), ambientColor = Ui.shadowWindow, spotColor = Ui.accentTintStrong),
                 shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF0B0D11),
-                border = BorderStroke(1.dp, Color(0x38E9ECF2))
+                color = Ui.surface0,
+                border = BorderStroke(1.dp, Ui.hairlineStrong)
             ) {
                 Column(Modifier.fillMaxSize()) {
                     V9Header(search = search, onSearch = { search = it }, dirty = dirty)
@@ -1802,17 +1992,9 @@ private fun ComposeTestContent(
                         V9Center(
                             Modifier.weight(if (compact) 0.80f else 0.54f).fillMaxHeight(),
                             selectedNav, visible,
-                            enabled, invulnerable, grayScreen, grayStrength, grayAnimate,
-                            startAnim, endAnim, startDuration, endDuration,
-                            ballColor, ballColorCustom, customColor,
-                            particleSize, stopDuration, triggerMode, soundEnabled, cooldown,
-                            soundVolume, particleAlpha, particleCount, particleSpin,
-                            freezeSelf, stopRadius, freezeEntities, freezeBlocks, freezeFluids,
-                            freezeBossAI, showMessage, grayStyle,
                             presetSlot, ::loadPreset, ::savePreset,
                             ::toggle, ::setSegment, ::setText, ::setSlider, ::setBall, ::setCustomColor,
-                            currentState(),
-                            uiTabVariant, uiTabSize, uiTabCompact,
+                            holder,
                             sectionTab, { sectionTab = it },
                             { page ->
                                 when (page) {
@@ -1835,13 +2017,20 @@ private fun ComposeTestContent(
                         if (!compact) {
                             V9Preview(
                                 Modifier.weight(0.30f).fillMaxHeight(),
-                                grayScreen, startDuration, endDuration, previewColor,
+                                holder,
                                 onStageBounds
                             )
                         }
                     }
                     V9Footer(quote(), ::resetDefaults, ::cancel, ::save)
                 }
+            }
+            if (confirmingClose.value) {
+                V9CloseConfirmDialog(
+                    onSaveClose = ::saveAndClose,
+                    onDiscardClose = ::discardAndClose,
+                    onKeepEditing = { confirmingClose.value = false }
+                )
             }
             }
         }
@@ -2016,6 +2205,7 @@ private data class V9State(
     val uiSwitchTextColor: Int = 0xFF78768D.toInt(),
     val uiSwitchTextOn: String = "On",
     val uiSwitchTextOff: String = "Off",
+    val domainRadius: Float = 20f,
     val rewindEnabled: Boolean = true,
     val rewindWindowSeconds: Int = 10,
     val rewindScopeMode: Int = 0,
@@ -2184,6 +2374,7 @@ private fun v9StateOf(config: YuanGodSwordConfig): V9State = V9State(
     uiSwitchTextColor = config.uiSwitchTextColor,
     uiSwitchTextOn = config.uiSwitchTextOn,
     uiSwitchTextOff = config.uiSwitchTextOff,
+    domainRadius = config.domainRadius,
     rewindEnabled = config.rewindEnabled,
     rewindWindowSeconds = config.rewindWindowSeconds,
     rewindScopeMode = config.rewindScopeMode,
@@ -2352,6 +2543,7 @@ private fun V9State.toConfig(): YuanGodSwordConfig = YuanGodSwordConfig().also {
     it.uiSwitchTextColor = uiSwitchTextColor
     it.uiSwitchTextOn = uiSwitchTextOn
     it.uiSwitchTextOff = uiSwitchTextOff
+    it.domainRadius = domainRadius
     it.rewindEnabled = rewindEnabled
     it.rewindWindowSeconds = rewindWindowSeconds
     it.rewindScopeMode = rewindScopeMode
@@ -2452,25 +2644,29 @@ private val v9Sections = listOf(
         V9Row("freezeFluids", "冻结流体", "液体不再流动", 0, "冻结", "时停影响范围与对象。"),
         V9Row("freezeBossAI", "冻结 Boss AI", "Boss 也随实体冻结", 0, "冻结", "时停影响范围与对象。")
     )),
+    V9Section("领域", "领域展开的范围。", listOf(
+        V9Row("domainRadius", "领域半径", "同时决定地面网格截止、术式架尺寸与滤镜范围", 2, "领域", "领域展开的范围。"),
+    )),
     V9Section("预设", "快速保存与载入整套配置。", listOf(
         V9Row("preset", "配置预设", "槽 1-3 保存/载入", 4, "预设", "快速保存与载入整套配置。")
     ))
 )
 
 private val navSections = mapOf(
-    "时停" to setOf("基础", "动画", "画面", "音效", "光球", "时长", "冻结", "预设"),
+    "时停" to setOf("基础", "动画", "画面", "音效", "光球", "时长", "冻结", "领域", "预设"),
     "斩击" to setOf("斩击"),
     "武器渲染" to setOf("武器渲染"),
     "回溯" to setOf("回溯"),
     "设置" to setOf("设置")
 )
 
-private val timestopTabs = listOf("基础", "效果", "音效", "冻结", "预设")
+private val timestopTabs = listOf("基础", "效果", "音效", "冻结", "领域", "预设")
 private val timestopTabSections = mapOf(
     "基础" to setOf("基础", "时长"),
     "效果" to setOf("动画", "画面", "光球"),
     "音效" to setOf("音效"),
     "冻结" to setOf("冻结"),
+    "领域" to setOf("领域"),
     "预设" to setOf("预设")
 )
 
@@ -2497,17 +2693,17 @@ private fun V9SearchBox(
         modifier
             .width(animWidth)
             .height(prefs.searchHeight)
-            .shadow(3.dp, RoundedCornerShape(radius), ambientColor = Color(0xFF0E0E0E), spotColor = Color(0x405F5E5E))
+            .shadow(3.dp, RoundedCornerShape(radius), ambientColor = Ui.shadowAmbientSoft, spotColor = Ui.shadowSpotWarm)
             .clip(RoundedCornerShape(radius))
-            .background(Color(0xFF191A1E))
-            .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(radius))
+            .background(Ui.surface3)
+            .border(1.dp, Ui.borderQuiet, RoundedCornerShape(radius))
             .clickable { focusRequester.requestFocus() }
     ) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(prefs.searchHeight).height(prefs.searchHeight).padding(8.dp)) {
                 Canvas(Modifier.fillMaxSize()) {
                     val stroke = 2.dp.toPx()
-                    val c = if (iconActive) Color(0xFFFF7A5C) else Color(0xFF9AA2B0)
+                    val c = if (iconActive) Ui.accent else Ui.textSecondary
                     val r = size.minDimension / 2f - stroke
                     drawCircle(
                         c,
@@ -2529,8 +2725,8 @@ private fun V9SearchBox(
                     value = value,
                     onValueChange = onValueChange,
                     singleLine = true,
-                    textStyle = TextStyle(fontSize = 12.sp, color = Color(0xFFD7DCE5), fontFamily = cnFont),
-                    cursorBrush = SolidColor(Color(0xFFFF7A5C)),
+                    textStyle = TextStyle(fontSize = 12.sp, color = Ui.textBody, fontFamily = cnFont),
+                    cursorBrush = SolidColor(Ui.accent),
                     modifier = Modifier.fillMaxSize()
                         .focusRequester(focusRequester)
                         .onFocusChanged { focused = it.isFocused }
@@ -2541,7 +2737,7 @@ private fun V9SearchBox(
                                 Text(
                                     "搜索设置",
                                     fontSize = 12.sp,
-                                    color = Color(0xFF646D7B),
+                                    color = Ui.textTertiary,
                                     fontFamily = cnFont,
                                     maxLines = 1
                                 )
@@ -2560,14 +2756,14 @@ private fun V9Header(search: String, onSearch: (String) -> Unit, dirty: Boolean)
     Row(
         Modifier.fillMaxWidth().height(52.dp)
             .drawBehind {
-                drawLine(Color(0x24E9ECF2), Offset(0f, size.height - 1f), Offset(size.width, size.height - 1f), 1f)
+                drawLine(Ui.hairline, Offset(0f, size.height - 1f), Offset(size.width, size.height - 1f), 1f)
             }
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("星渊", fontSize = 17.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont, fontWeight = FontWeight.Bold)
-        Text("/", fontSize = 17.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont, fontWeight = FontWeight.Bold)
-        Text("神剑", fontSize = 17.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont, fontWeight = FontWeight.Bold)
+        Text("星渊", fontSize = 17.sp, color = Ui.textPrimary, fontFamily = cnFont, fontWeight = FontWeight.Bold)
+        Text("/", fontSize = 17.sp, color = Ui.accent, fontFamily = cnFont, fontWeight = FontWeight.Bold)
+        Text("神剑", fontSize = 17.sp, color = Ui.textPrimary, fontFamily = cnFont, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(18.dp))
         V9SearchBox(
             value = search,
@@ -2578,10 +2774,10 @@ private fun V9Header(search: String, onSearch: (String) -> Unit, dirty: Boolean)
             Text(
                 if (dirty) "有未保存的更改" else "已保存",
                 fontSize = 12.sp,
-                color = if (dirty) Color(0xFFFF7A5C) else Color(0xFF9AA2B0),
+                color = if (dirty) Ui.accent else Ui.textSecondary,
                 fontFamily = cnFont
             )
-            Text("· 神剑专属", fontSize = 10.sp, color = Color(0xFF646D7B), fontFamily = cnFont)
+            Text("· 神剑专属", fontSize = 10.sp, color = Ui.textTertiary, fontFamily = cnFont)
         }
     }
 }
@@ -2591,11 +2787,14 @@ private fun V9LobeTabs(
     items: List<String>,
     selected: String,
     onSelect: (String) -> Unit,
-    variant: Int,
-    size: Int,
-    compact: Boolean,
+    state: V9Holder,
     modifier: Modifier = Modifier
 ) {
+    // Read the tab preferences here rather than at the call site: the caller then stops subscribing
+    // to them and only the tab strip recomposes when a preference changes.
+    val variant = state.uiTabVariant
+    val size = state.uiTabSize
+    val compact = state.uiTabCompact
     val spacing = if (compact) 4.dp else 6.dp
     val hPad = when (size) {
         0 -> if (compact) 8.dp else 10.dp
@@ -2630,26 +2829,34 @@ private fun V9LobeTabs(
             val selectedModifier = when (variant) {
                 1 -> Modifier
                 else -> Modifier
-                    .background(Color(0xFFFF7A5C).copy(alpha = 0.15f * reveal), RoundedCornerShape(12.dp))
+                    .background(Ui.accent.copy(alpha = 0.15f * reveal), RoundedCornerShape(12.dp))
                     .border(
                         1.dp,
-                        Color(0xFFE9ECF2).copy(alpha = 0.08f * reveal),
+                        Ui.hairlineStrong.copy(alpha = 0.08f * reveal),
                         RoundedCornerShape(12.dp)
                     )
             }
+            val pressed = isPressed(interaction)
             Box(
                 Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (hovered && !isSelected) Color(0x0FFFFFFF) else Color.Transparent)
+                    .background(
+                        when {
+                            pressed -> Ui.overlayPressed
+                            hovered && !isSelected -> Ui.overlayHover
+                            else -> Color.Transparent
+                        }
+                    )
                     .then(selectedModifier)
                     .hoverable(interaction)
+                    .handCursor()
                     .clickable(interactionSource = interaction, indication = null) { onSelect(tab) }
                     .padding(horizontal = hPad, vertical = vPad)
             ) {
                 Text(
                     tab,
                     fontSize = font,
-                    color = if (isSelected) Color(0xFFFFA08A) else Color(0xFF9AA2B0),
+                    color = if (isSelected) Ui.accentHover else Ui.textSecondary,
                     fontFamily = cnFont
                 )
                 when (variant) {
@@ -2663,7 +2870,7 @@ private fun V9LobeTabs(
                             Modifier.align(Alignment.BottomCenter)
                                 .fillMaxWidth(lineReveal)
                                 .height(2.dp)
-                                .background(Color(0xFFFF7A5C), RoundedCornerShape(1.dp))
+                                .background(Ui.accent, RoundedCornerShape(1.dp))
                         )
                     }
                     else -> Unit
@@ -2677,36 +2884,45 @@ private fun V9LobeTabs(
 private fun V9Sidebar(modifier: Modifier, selectedNav: String, onSelect: (String) -> Unit) {
     val items = listOf("时停", "武器渲染", "斩击", "回溯", "设置")
     Column(
-        modifier.background(Brush.verticalGradient(listOf(Color(0xFF101319), Color(0xFF0D0F14)))).drawBehind {
-            drawLine(Color(0x24E9ECF2), Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
+        modifier.background(Brush.verticalGradient(listOf(Ui.surface1, Ui.surface1))).drawBehind {
+            drawLine(Ui.hairline, Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
         }.padding(top = 10.dp, bottom = 10.dp)
     ) {
-        Text("导航", fontSize = 11.sp, color = Color(0xFF646D7B), fontFamily = cnFont, modifier = Modifier.padding(horizontal = 14.dp))
+        Text("导航", fontSize = 11.sp, color = Ui.textTertiary, fontFamily = cnFont, modifier = Modifier.padding(horizontal = 14.dp))
         Spacer(Modifier.height(12.dp))
         items.forEach { item ->
             val interaction = remember { MutableInteractionSource() }
             val hovered by interaction.collectIsHoveredAsState()
+            val pressed = isPressed(interaction)
             val selected = item == selectedNav
             Row(
                 Modifier.fillMaxWidth().height(38.dp)
                     .padding(horizontal = 8.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (selected) Color(0x21FF7A5C) else if (hovered) Color(0x08FFFFFF) else Color.Transparent)
+                    .background(
+                        when {
+                            pressed -> Ui.accentTintStrong
+                            selected -> Ui.accentTintStrong
+                            hovered -> Ui.overlayHover
+                            else -> Color.Transparent
+                        }
+                    )
                     .hoverable(interaction)
+                    .handCursor()
                     .clickable(interactionSource = interaction, indication = null) { onSelect(item) }
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     Modifier.width(3.dp).height(24.dp)
-                        .background(if (selected) Color(0xFFFF7A5C) else Color.Transparent, RoundedCornerShape(2.dp))
+                        .background(if (selected) Ui.accent else Color.Transparent, RoundedCornerShape(2.dp))
                 )
                 Spacer(Modifier.width(10.dp))
-                Text(item, fontSize = 13.sp, color = if (selected) Color(0xFFF2F4F8) else Color(0xFF9AA2B0), fontFamily = cnFont)
+                Text(item, fontSize = 13.sp, color = if (selected) Ui.textPrimary else Ui.textSecondary, fontFamily = cnFont)
             }
         }
         Spacer(Modifier.weight(1f))
-        Text("设置跟随这把神剑保存", fontSize = 10.sp, color = Color(0xFF646D7B), fontFamily = cnFont, modifier = Modifier.padding(horizontal = 14.dp))
+        Text("设置跟随这把神剑保存", fontSize = 10.sp, color = Ui.textTertiary, fontFamily = cnFont, modifier = Modifier.padding(horizontal = 14.dp))
     }
 }
 
@@ -2715,13 +2931,6 @@ private fun V9Center(
     modifier: Modifier,
     selectedNav: String,
     sections: List<Pair<V9Section, List<V9Row>>>,
-    enabled: Boolean, invulnerable: Boolean, grayScreen: Boolean, grayStrength: Float, grayAnimate: Boolean,
-    startAnim: Int, endAnim: Int, startDuration: Float, endDuration: Float,
-    ballColor: Int, ballColorCustom: Boolean, customColor: Int,
-    particleSize: Float, stopDuration: Float, triggerMode: Int, soundEnabled: Boolean, cooldown: Int,
-    soundVolume: Float, particleAlpha: Float, particleCount: Int, particleSpin: Float,
-    freezeSelf: Boolean, stopRadius: Float, freezeEntities: Boolean, freezeBlocks: Boolean,
-    freezeFluids: Boolean, freezeBossAI: Boolean, showMessage: Boolean, grayStyle: Int,
     presetSlot: Int, onPresetLoad: (Int) -> Unit, onPresetSave: () -> Unit,
     onToggle: (String) -> Unit,
     onSegment: (String, Int) -> Unit,
@@ -2729,10 +2938,7 @@ private fun V9Center(
     onSlider: (String, Float) -> Unit,
     onBall: (Int) -> Unit,
     onCustomColor: (Int) -> Unit,
-    state: V9State,
-    uiTabVariant: Int,
-    uiTabSize: Int,
-    uiTabCompact: Boolean,
+    state: V9Holder,
     sectionTab: String,
     onSectionTab: (String) -> Unit,
     onResetPage: (String) -> Unit
@@ -2741,9 +2947,6 @@ private fun V9Center(
         V9SettingsPanel(
             modifier = modifier,
             state = state,
-            uiTabVariant = uiTabVariant,
-            uiTabSize = uiTabSize,
-            uiTabCompact = uiTabCompact,
             onToggle = onToggle,
             onSegment = onSegment,
             onText = onText,
@@ -2767,9 +2970,6 @@ private fun V9Center(
         V9SlashPanel(
             modifier = modifier,
             state = state,
-            uiTabVariant = uiTabVariant,
-            uiTabSize = uiTabSize,
-            uiTabCompact = uiTabCompact,
             onToggle = onToggle,
             onSlider = onSlider,
             onSegment = onSegment,
@@ -2789,32 +2989,19 @@ private fun V9Center(
         return
     }
     Column(
-        modifier.background(Brush.verticalGradient(listOf(Color(0xFF13161D), Color(0xFF0F1217)))).drawBehind {
-            drawLine(Color(0x24E9ECF2), Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
-        }.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier.background(Brush.verticalGradient(listOf(Ui.surface2, Ui.surface1))).drawBehind {
+            drawLine(Ui.hairline, Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
+        }.panelScroll("时停").padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text(if (selectedNav == "时停") "时停设置" else "${selectedNav}设置", fontSize = 14.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont)
-        Text(
-            when {
-                selectedNav != "时停" -> "设置跟随这把神剑保存"
-                triggerMode == 1 -> "Shift + 右键触发"
-                triggerMode == 2 -> "自定义键触发"
-                else -> "右键触发"
-            },
-            fontSize = 11.sp,
-            color = Color(0xFF9AA2B0),
-            fontFamily = cnFont,
-            modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
-        )
+        Text(if (selectedNav == "时停") "时停设置" else "${selectedNav}设置", fontSize = 14.sp, color = Ui.textPrimary, fontFamily = cnFont)
+        V9TimestopHint(selectedNav, state)
         if (selectedNav == "时停") {
             V9LobeTabs(
                 items = timestopTabs,
                 selected = sectionTab,
                 onSelect = onSectionTab,
-                variant = uiTabVariant,
-                size = uiTabSize,
-                compact = uiTabCompact,
+            state = state,
                 modifier = Modifier.padding(bottom = 6.dp)
             )
         }
@@ -2825,99 +3012,142 @@ private fun V9Center(
         }
         shown.forEach { (section, rows) ->
             Row(Modifier.padding(top = 8.dp, bottom = 2.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(section.name, fontSize = 12.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont)
+                Text(section.name, fontSize = 12.sp, color = Ui.textSecondary, fontFamily = cnFont)
                 Text(
                     section.hint,
                     fontSize = 10.sp,
-                    color = Color(0xFF646D7B),
+                    color = Ui.textTertiary,
                     fontFamily = cnFont,
                     modifier = Modifier.weight(1f).padding(start = 10.dp),
                     maxLines = 2
                 )
             }
             rows.forEach { row ->
-                when (row.type) {
-                    0 -> V9SwitchRow(
-                        row.name, row.desc,
-                        switchValue(
-                            row.id, enabled, invulnerable, grayScreen, grayAnimate,
-                            soundEnabled, freezeSelf, freezeEntities,
-                            freezeBlocks, freezeFluids, freezeBossAI, showMessage
-                        )
-                    ) {
-                        onToggle(row.id)
-                    }
-                    1 -> V9SegmentRow(
-                        row.name, row.desc,
-                        when (row.id) {
-                            "startAnim" -> listOf("爆开", "冲击波", "无")
-                            "endAnim" -> listOf("收束", "无")
-                            "triggerMode" -> listOf("右键", "Shift + 右键", "自定义键")
-                            else -> listOf("纯黑白", "复古", "暗角")
-                        },
-                        when (row.id) {
-                            "startAnim" -> startAnim
-                            "endAnim" -> endAnim
-                            "triggerMode" -> triggerMode
-                            else -> grayStyle
-                        }
-                    ) { onSegment(row.id, it) }
-                    2 -> V9SliderRow(
-                        row.name, row.desc,
-                        when (row.id) {
-                            "startDuration" -> startDuration
-                            "endDuration" -> endDuration
-                            "grayStrength" -> grayStrength
-                            "particleSize" -> particleSize
-                            "stopDuration" -> stopDuration
-                            "cooldown" -> cooldown.toFloat()
-                            "soundVolume" -> soundVolume
-                            "particleAlpha" -> particleAlpha
-                            "particleCount" -> particleCount.toFloat()
-                            "particleSpin" -> particleSpin
-                            else -> stopRadius
-                        },
-                        when (row.id) {
-                            "grayStrength" -> 0f
-                            "particleSize" -> 0.4f
-                            "stopDuration" -> 0f
-                            "cooldown" -> 0f
-                            "soundVolume" -> 0f
-                            "particleAlpha" -> 0.1f
-                            "particleCount" -> 1f
-                            "particleSpin" -> 0f
-                            else -> 0.1f
-                        },
-                        when (row.id) {
-                            "grayStrength" -> 1f
-                            "particleSize" -> 3f
-                            "stopDuration" -> 60f
-                            "cooldown" -> 100f
-                            "soundVolume" -> 1f
-                            "particleAlpha" -> 1f
-                            "particleCount" -> 16f
-                            "particleSpin" -> 3f
-                            else -> 2f
-                        },
-                        when (row.id) {
-                            "grayStrength" -> { v -> String.format(java.util.Locale.ROOT, "%.0f%%", v * 100f) }
-                            "particleSize" -> { v -> String.format(java.util.Locale.ROOT, "%.2f", v) }
-                            "stopDuration" -> { v -> if (v <= 0f) "手动" else String.format(java.util.Locale.ROOT, "%.1fs", v) }
-                            "cooldown" -> { v -> "${v.toInt()} tick" }
-                            "soundVolume" -> { v -> String.format(java.util.Locale.ROOT, "%.0f%%", v * 100f) }
-                            "particleAlpha" -> { v -> String.format(java.util.Locale.ROOT, "%.2f", v) }
-                            "particleCount" -> { v -> "${v.toInt()} 个" }
-                            "particleSpin" -> { v -> String.format(java.util.Locale.ROOT, "%.2f", v) }
-                            "stopRadius" -> { v -> if (v <= 0f) "全场" else String.format(java.util.Locale.ROOT, "%.0f 格", v) }
-                            else -> { v -> String.format(java.util.Locale.ROOT, "%.1fs", v) }
-                        }
-                    ) { onSlider(row.id, it) }
-                    3 -> V9SwatchRow(row.name, row.desc, ballColor, ballColorCustom, customColor, onBall, onCustomColor)
-                    else -> V9PresetRow(presetSlot, onPresetLoad, onPresetSave)
-                }
+                V9TimestopRow(row, state, presetSlot, onToggle, onSegment, onSlider,
+                    onBall, onCustomColor, onPresetLoad, onPresetSave)
             }
         }
     }
+}
+
+/** Owns the trigger-mode read so the centre column no longer subscribes to it. */
+@Composable
+private fun V9TimestopHint(selectedNav: String, state: V9Holder) {
+    val triggerMode = state.triggerMode
+    Text(
+        when {
+            selectedNav != "时停" -> "设置跟随这把神剑保存"
+            triggerMode == 1 -> "Shift + 右键触发"
+            triggerMode == 2 -> "自定义键触发"
+            else -> "右键触发"
+        },
+        fontSize = 11.sp,
+        color = Ui.textSecondary,
+        fontFamily = cnFont,
+        modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
+    )
+}
+
+/**
+ * One row of the time-stop table. It reads its own values from the holder, so editing a
+ * single setting recomposes this row instead of the whole centre column.
+ */
+@Composable
+private fun V9TimestopRow(
+    row: V9Row,
+    state: V9Holder,
+    presetSlot: Int,
+    onToggle: (String) -> Unit,
+    onSegment: (String, Int) -> Unit,
+    onSlider: (String, Float) -> Unit,
+    onBall: (Int) -> Unit,
+    onCustomColor: (Int) -> Unit,
+    onPresetLoad: (Int) -> Unit,
+    onPresetSave: () -> Unit
+) {
+    when (row.type) {
+    0 -> V9SwitchRow(
+        row.name, row.desc,
+        switchValue(
+            row.id, state.enabled, state.invulnerable, state.grayScreen, state.grayAnimate,
+            state.soundEnabled, state.freezeSelf, state.freezeEntities,
+            state.freezeBlocks, state.freezeFluids, state.freezeBossAI, state.showMessage
+        )
+    ) {
+        onToggle(row.id)
+    }
+    1 -> V9SegmentRow(
+        row.name, row.desc,
+        when (row.id) {
+            "startAnim" -> listOf("爆开", "冲击波", "无")
+            "endAnim" -> listOf("收束", "无")
+            "triggerMode" -> listOf("右键", "Shift + 右键", "自定义键")
+            else -> listOf("纯黑白", "复古", "暗角")
+        },
+        when (row.id) {
+            "startAnim" -> state.startAnim
+            "endAnim" -> state.endAnim
+            "triggerMode" -> state.triggerMode
+            else -> state.grayStyle
+        }
+    ) { onSegment(row.id, it) }
+    2 -> V9SliderRow(
+        row.name, row.desc, {
+        when (row.id) {
+            "startDuration" -> state.startDuration
+            "endDuration" -> state.endDuration
+            "grayStrength" -> state.grayStrength
+            "particleSize" -> state.particleSize
+            "stopDuration" -> state.stopDuration
+            "cooldown" -> state.cooldown.toFloat()
+            "soundVolume" -> state.soundVolume
+            "particleAlpha" -> state.particleAlpha
+            "particleCount" -> state.particleCount.toFloat()
+            "particleSpin" -> state.particleSpin
+            "domainRadius" -> state.domainRadius
+            else -> state.stopRadius
+        } },
+        when (row.id) {
+            "grayStrength" -> 0f
+            "particleSize" -> 0.4f
+            "stopDuration" -> 0f
+            "cooldown" -> 0f
+            "soundVolume" -> 0f
+            "particleAlpha" -> 0.1f
+            "particleCount" -> 1f
+            "particleSpin" -> 0f
+            "domainRadius" -> 4f
+            else -> 0.1f
+        },
+        when (row.id) {
+            "grayStrength" -> 1f
+            "particleSize" -> 3f
+            "stopDuration" -> 60f
+            "cooldown" -> 100f
+            "soundVolume" -> 1f
+            "particleAlpha" -> 1f
+            "particleCount" -> 16f
+            "particleSpin" -> 3f
+            "domainRadius" -> 128f
+            else -> 2f
+        },
+        when (row.id) {
+            "grayStrength" -> { v -> String.format(java.util.Locale.ROOT, "%.0f%%", v * 100f) }
+            "particleSize" -> { v -> String.format(java.util.Locale.ROOT, "%.2f", v) }
+            "stopDuration" -> { v -> if (v <= 0f) "手动" else String.format(java.util.Locale.ROOT, "%.1fs", v) }
+            "cooldown" -> { v -> "${v.toInt()} tick" }
+            "soundVolume" -> { v -> String.format(java.util.Locale.ROOT, "%.0f%%", v * 100f) }
+            "particleAlpha" -> { v -> String.format(java.util.Locale.ROOT, "%.2f", v) }
+            "particleCount" -> { v -> "${v.toInt()} 个" }
+            "particleSpin" -> { v -> String.format(java.util.Locale.ROOT, "%.2f", v) }
+            "stopRadius" -> { v -> if (v <= 0f) "全场" else String.format(java.util.Locale.ROOT, "%.0f 格", v) }
+            "domainRadius" -> { v -> String.format(java.util.Locale.ROOT, "%.0f 格", v) }
+            else -> { v -> String.format(java.util.Locale.ROOT, "%.1fs", v) }
+        }
+    ) { onSlider(row.id, it) }
+    3 -> V9SwatchRow(row.name, row.desc, state.ballColor, state.ballColorCustom, state.customColor, onBall, onCustomColor)
+    else -> V9PresetRow(presetSlot, onPresetLoad, onPresetSave)
+}
 }
 
 private fun switchValue(
@@ -2953,50 +3183,49 @@ private fun hoverBackground(): Modifier {
     val hovered by interaction.collectIsHoveredAsState()
     return Modifier
         .clip(RoundedCornerShape(8.dp))
-        .background(if (hovered) Color(0x04FFFFFF) else Color.Transparent)
+        .background(if (hovered) Ui.overlayRowHover else Color.Transparent)
         .hoverable(interaction)
 }
 
 @Composable
 private fun V9SettingsPanel(
     modifier: Modifier,
-    state: V9State,
-    uiTabVariant: Int,
-    uiTabSize: Int,
-    uiTabCompact: Boolean,
+    state: V9Holder,
     onToggle: (String) -> Unit,
     onSegment: (String, Int) -> Unit,
     onText: (String, String) -> Unit,
     onSlider: (String, Float) -> Unit,
     onReset: (String) -> Unit
 ) {
+    // Read here so V9Center no longer subscribes to the tab preferences.
+    val uiTabVariant = state.uiTabVariant
+    val uiTabSize = state.uiTabSize
+    val uiTabCompact = state.uiTabCompact
     var settingsTab by remember { mutableStateOf("标签栏") }
     var previewSearch by remember { mutableStateOf("") }
     var previewSwitch by remember { mutableStateOf(true) }
     Column(
-        modifier.background(Brush.verticalGradient(listOf(Color(0xFF13161D), Color(0xFF0F1217))))
+        modifier.background(Brush.verticalGradient(listOf(Ui.surface2, Ui.surface1)))
             .drawBehind {
-                drawLine(Color(0x24E9ECF2), Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
+                drawLine(Ui.hairline, Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
             }
-            .verticalScroll(rememberScrollState())
+            .panelScroll("设置")
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text("设置", fontSize = 14.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont)
-        Text("界面显示与交互样式", fontSize = 11.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont,
+        Text("设置", fontSize = 14.sp, color = Ui.textPrimary, fontFamily = cnFont)
+        Text("界面显示与交互样式", fontSize = 11.sp, color = Ui.textSecondary, fontFamily = cnFont,
             modifier = Modifier.padding(top = 2.dp, bottom = 6.dp))
         V9LobeTabs(
             items = listOf("标签栏", "滑块", "搜索框", "开关"),
             selected = settingsTab,
             onSelect = { settingsTab = it },
-            variant = uiTabVariant,
-            size = uiTabSize,
-            compact = uiTabCompact,
+            state = state,
             modifier = Modifier.padding(bottom = 6.dp)
         )
         when (settingsTab) {
             "滑块" -> {
-                Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+                Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
                     modifier = Modifier.align(Alignment.End).clickable { onReset("设置滑块") }.padding(bottom = 4.dp))
                 V9SegmentRow("滑块高度", "矮 / 标准 / 高", listOf("矮", "标准", "高"), state.uiSliderHeight) {
                     onSegment("uiSliderHeight", it)
@@ -3004,26 +3233,26 @@ private fun V9SettingsPanel(
                 V9SegmentRow("滑块大小", "小 / 标准 / 大", listOf("小", "标准", "大"), state.uiSliderThumb) {
                     onSegment("uiSliderThumb", it)
                 }
-                Text("实时预览", fontSize = 12.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont,
+                Text("实时预览", fontSize = 12.sp, color = Ui.textSecondary, fontFamily = cnFont,
                     modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
-                V9SliderRow("示例", "调整上方参数即时生效", 0.62f, 0f, 1f, { "%.2f".format(it) }) { }
+                V9SliderRow("示例", "调整上方参数即时生效", { 0.62f }, 0f, 1f, { "%.2f".format(it) }) { }
             }
             "搜索框" -> {
-                Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+                Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
                     modifier = Modifier.align(Alignment.End).clickable { onReset("设置搜索框") }.padding(bottom = 4.dp))
                 V9SegmentRow("搜索框样式", "经典 / 展开", listOf("经典", "展开"), state.uiSearchStyle) {
                     onSegment("uiSearchStyle", it)
                 }
-                V9SliderRow("宽度", "120~280", state.uiSearchWidth, 120f, 280f, { "%.0f".format(it) }) {
+                V9SliderRow("宽度", "120~280", { state.uiSearchWidth }, 120f, 280f, { "%.0f".format(it) }) {
                     onSlider("uiSearchWidth", it)
                 }
-                V9SliderRow("高度", "28~48", state.uiSearchHeight, 28f, 48f, { "%.0f".format(it) }) {
+                V9SliderRow("高度", "28~48", { state.uiSearchHeight }, 28f, 48f, { "%.0f".format(it) }) {
                     onSlider("uiSearchHeight", it)
                 }
-                V9SliderRow("圆角", "0~24", state.uiSearchRadius, 0f, 24f, { "%.0f".format(it) }) {
+                V9SliderRow("圆角", "0~24", { state.uiSearchRadius }, 0f, 24f, { "%.0f".format(it) }) {
                     onSlider("uiSearchRadius", it)
                 }
-                Text("实时预览", fontSize = 12.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont,
+                Text("实时预览", fontSize = 12.sp, color = Ui.textSecondary, fontFamily = cnFont,
                     modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
                 V9SearchBox(
                     value = previewSearch,
@@ -3032,82 +3261,82 @@ private fun V9SettingsPanel(
                 )
             }
             "开关" -> {
-                Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+                Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
                     modifier = Modifier.align(Alignment.End).clickable { onReset("设置开关") }.padding(bottom = 4.dp))
                 V9SegmentRow("开关样式", "经典 / 渐变翻转 / 白底滑动 / 文字翻转", listOf("经典", "渐变翻转", "白底滑动", "文字翻转"), state.uiSwitchStyle) {
                     onSegment("uiSwitchStyle", it)
                 }
-                V9SliderRow("轨道宽度", "54~80", state.uiSwitchWidth, 54f, 80f, { "%.0f".format(it) }) {
+                V9SliderRow("轨道宽度", "54~80", { state.uiSwitchWidth }, 54f, 80f, { "%.0f".format(it) }) {
                     onSlider("uiSwitchWidth", it)
                 }
-                V9SliderRow("轨道高度", "24~32", state.uiSwitchHeight, 24f, 32f, { "%.0f".format(it) }) {
+                V9SliderRow("轨道高度", "24~32", { state.uiSwitchHeight }, 24f, 32f, { "%.0f".format(it) }) {
                     onSlider("uiSwitchHeight", it)
                 }
-                V9SliderRow("圆钮大小", "16~24", state.uiSwitchKnob, 16f, 24f, { "%.0f".format(it) }) {
+                V9SliderRow("圆钮大小", "16~24", { state.uiSwitchKnob }, 16f, 24f, { "%.0f".format(it) }) {
                     onSlider("uiSwitchKnob", it)
                 }
                 if (state.uiSwitchStyle == 1) {
-                    Text("渐变颜色 1", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                    Text("渐变颜色 1", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                    V9ColorSlider("R", (state.uiSwitchGradientA shr 16) and 0xFF) { onSlider("uiSwitchGradientAR", it.toFloat()) }
-                    V9ColorSlider("G", (state.uiSwitchGradientA shr 8) and 0xFF) { onSlider("uiSwitchGradientAG", it.toFloat()) }
-                    V9ColorSlider("B", state.uiSwitchGradientA and 0xFF) { onSlider("uiSwitchGradientAB", it.toFloat()) }
-                    Text("渐变颜色 2", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                    V9ColorSlider("R", { (state.uiSwitchGradientA shr 16) and 0xFF }) { onSlider("uiSwitchGradientAR", it.toFloat()) }
+                    V9ColorSlider("G", { (state.uiSwitchGradientA shr 8) and 0xFF }) { onSlider("uiSwitchGradientAG", it.toFloat()) }
+                    V9ColorSlider("B", { state.uiSwitchGradientA and 0xFF }) { onSlider("uiSwitchGradientAB", it.toFloat()) }
+                    Text("渐变颜色 2", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                    V9ColorSlider("R", (state.uiSwitchGradientB shr 16) and 0xFF) { onSlider("uiSwitchGradientBR", it.toFloat()) }
-                    V9ColorSlider("G", (state.uiSwitchGradientB shr 8) and 0xFF) { onSlider("uiSwitchGradientBG", it.toFloat()) }
-                    V9ColorSlider("B", state.uiSwitchGradientB and 0xFF) { onSlider("uiSwitchGradientBB", it.toFloat()) }
-                    Text("未选中轨道色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                    V9ColorSlider("R", { (state.uiSwitchGradientB shr 16) and 0xFF }) { onSlider("uiSwitchGradientBR", it.toFloat()) }
+                    V9ColorSlider("G", { (state.uiSwitchGradientB shr 8) and 0xFF }) { onSlider("uiSwitchGradientBG", it.toFloat()) }
+                    V9ColorSlider("B", { state.uiSwitchGradientB and 0xFF }) { onSlider("uiSwitchGradientBB", it.toFloat()) }
+                    Text("未选中轨道色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                    V9ColorSlider("R", (state.uiSwitchTrackOff shr 16) and 0xFF) { onSlider("uiSwitchTrackOffR", it.toFloat()) }
-                    V9ColorSlider("G", (state.uiSwitchTrackOff shr 8) and 0xFF) { onSlider("uiSwitchTrackOffG", it.toFloat()) }
-                    V9ColorSlider("B", state.uiSwitchTrackOff and 0xFF) { onSlider("uiSwitchTrackOffB", it.toFloat()) }
+                    V9ColorSlider("R", { (state.uiSwitchTrackOff shr 16) and 0xFF }) { onSlider("uiSwitchTrackOffR", it.toFloat()) }
+                    V9ColorSlider("G", { (state.uiSwitchTrackOff shr 8) and 0xFF }) { onSlider("uiSwitchTrackOffG", it.toFloat()) }
+                    V9ColorSlider("B", { state.uiSwitchTrackOff and 0xFF }) { onSlider("uiSwitchTrackOffB", it.toFloat()) }
                 } else if (state.uiSwitchStyle == 2) {
-                    Text("轨道底色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                    Text("轨道底色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                    V9ColorSlider("R", (state.uiSwitchSlideTrack shr 16) and 0xFF) { onSlider("uiSwitchSlideTrackR", it.toFloat()) }
-                    V9ColorSlider("G", (state.uiSwitchSlideTrack shr 8) and 0xFF) { onSlider("uiSwitchSlideTrackG", it.toFloat()) }
-                    V9ColorSlider("B", state.uiSwitchSlideTrack and 0xFF) { onSlider("uiSwitchSlideTrackB", it.toFloat()) }
-                    Text("未选中圆钮色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                    V9ColorSlider("R", { (state.uiSwitchSlideTrack shr 16) and 0xFF }) { onSlider("uiSwitchSlideTrackR", it.toFloat()) }
+                    V9ColorSlider("G", { (state.uiSwitchSlideTrack shr 8) and 0xFF }) { onSlider("uiSwitchSlideTrackG", it.toFloat()) }
+                    V9ColorSlider("B", { state.uiSwitchSlideTrack and 0xFF }) { onSlider("uiSwitchSlideTrackB", it.toFloat()) }
+                    Text("未选中圆钮色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                    V9ColorSlider("R", (state.uiSwitchSlideOff shr 16) and 0xFF) { onSlider("uiSwitchSlideOffR", it.toFloat()) }
-                    V9ColorSlider("G", (state.uiSwitchSlideOff shr 8) and 0xFF) { onSlider("uiSwitchSlideOffG", it.toFloat()) }
-                    V9ColorSlider("B", state.uiSwitchSlideOff and 0xFF) { onSlider("uiSwitchSlideOffB", it.toFloat()) }
-                    Text("选中圆钮色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                    V9ColorSlider("R", { (state.uiSwitchSlideOff shr 16) and 0xFF }) { onSlider("uiSwitchSlideOffR", it.toFloat()) }
+                    V9ColorSlider("G", { (state.uiSwitchSlideOff shr 8) and 0xFF }) { onSlider("uiSwitchSlideOffG", it.toFloat()) }
+                    V9ColorSlider("B", { state.uiSwitchSlideOff and 0xFF }) { onSlider("uiSwitchSlideOffB", it.toFloat()) }
+                    Text("选中圆钮色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                    V9ColorSlider("R", (state.uiSwitchSlideOn shr 16) and 0xFF) { onSlider("uiSwitchSlideOnR", it.toFloat()) }
-                    V9ColorSlider("G", (state.uiSwitchSlideOn shr 8) and 0xFF) { onSlider("uiSwitchSlideOnG", it.toFloat()) }
-                    V9ColorSlider("B", state.uiSwitchSlideOn and 0xFF) { onSlider("uiSwitchSlideOnB", it.toFloat()) }
+                    V9ColorSlider("R", { (state.uiSwitchSlideOn shr 16) and 0xFF }) { onSlider("uiSwitchSlideOnR", it.toFloat()) }
+                    V9ColorSlider("G", { (state.uiSwitchSlideOn shr 8) and 0xFF }) { onSlider("uiSwitchSlideOnG", it.toFloat()) }
+                    V9ColorSlider("B", { state.uiSwitchSlideOn and 0xFF }) { onSlider("uiSwitchSlideOnB", it.toFloat()) }
                 } else if (state.uiSwitchStyle == 3) {
-                    Text("未选中轨道色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                    Text("未选中轨道色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                    V9ColorSlider("R", (state.uiSwitchTextTrackOff shr 16) and 0xFF) { onSlider("uiSwitchTextTrackOffR", it.toFloat()) }
-                    V9ColorSlider("G", (state.uiSwitchTextTrackOff shr 8) and 0xFF) { onSlider("uiSwitchTextTrackOffG", it.toFloat()) }
-                    V9ColorSlider("B", state.uiSwitchTextTrackOff and 0xFF) { onSlider("uiSwitchTextTrackOffB", it.toFloat()) }
-                    Text("选中轨道色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                    V9ColorSlider("R", { (state.uiSwitchTextTrackOff shr 16) and 0xFF }) { onSlider("uiSwitchTextTrackOffR", it.toFloat()) }
+                    V9ColorSlider("G", { (state.uiSwitchTextTrackOff shr 8) and 0xFF }) { onSlider("uiSwitchTextTrackOffG", it.toFloat()) }
+                    V9ColorSlider("B", { state.uiSwitchTextTrackOff and 0xFF }) { onSlider("uiSwitchTextTrackOffB", it.toFloat()) }
+                    Text("选中轨道色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                    V9ColorSlider("R", (state.uiSwitchTextTrackOn shr 16) and 0xFF) { onSlider("uiSwitchTextTrackOnR", it.toFloat()) }
-                    V9ColorSlider("G", (state.uiSwitchTextTrackOn shr 8) and 0xFF) { onSlider("uiSwitchTextTrackOnG", it.toFloat()) }
-                    V9ColorSlider("B", state.uiSwitchTextTrackOn and 0xFF) { onSlider("uiSwitchTextTrackOnB", it.toFloat()) }
-                    Text("圆钮色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                    V9ColorSlider("R", { (state.uiSwitchTextTrackOn shr 16) and 0xFF }) { onSlider("uiSwitchTextTrackOnR", it.toFloat()) }
+                    V9ColorSlider("G", { (state.uiSwitchTextTrackOn shr 8) and 0xFF }) { onSlider("uiSwitchTextTrackOnG", it.toFloat()) }
+                    V9ColorSlider("B", { state.uiSwitchTextTrackOn and 0xFF }) { onSlider("uiSwitchTextTrackOnB", it.toFloat()) }
+                    Text("圆钮色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                    V9ColorSlider("R", (state.uiSwitchTextKnob shr 16) and 0xFF) { onSlider("uiSwitchTextKnobR", it.toFloat()) }
-                    V9ColorSlider("G", (state.uiSwitchTextKnob shr 8) and 0xFF) { onSlider("uiSwitchTextKnobG", it.toFloat()) }
-                    V9ColorSlider("B", state.uiSwitchTextKnob and 0xFF) { onSlider("uiSwitchTextKnobB", it.toFloat()) }
-                    Text("文字颜色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                    V9ColorSlider("R", { (state.uiSwitchTextKnob shr 16) and 0xFF }) { onSlider("uiSwitchTextKnobR", it.toFloat()) }
+                    V9ColorSlider("G", { (state.uiSwitchTextKnob shr 8) and 0xFF }) { onSlider("uiSwitchTextKnobG", it.toFloat()) }
+                    V9ColorSlider("B", { state.uiSwitchTextKnob and 0xFF }) { onSlider("uiSwitchTextKnobB", it.toFloat()) }
+                    Text("文字颜色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                         modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                    V9ColorSlider("R", (state.uiSwitchTextColor shr 16) and 0xFF) { onSlider("uiSwitchTextColorR", it.toFloat()) }
-                    V9ColorSlider("G", (state.uiSwitchTextColor shr 8) and 0xFF) { onSlider("uiSwitchTextColorG", it.toFloat()) }
-                    V9ColorSlider("B", state.uiSwitchTextColor and 0xFF) { onSlider("uiSwitchTextColorB", it.toFloat()) }
+                    V9ColorSlider("R", { (state.uiSwitchTextColor shr 16) and 0xFF }) { onSlider("uiSwitchTextColorR", it.toFloat()) }
+                    V9ColorSlider("G", { (state.uiSwitchTextColor shr 8) and 0xFF }) { onSlider("uiSwitchTextColorG", it.toFloat()) }
+                    V9ColorSlider("B", { state.uiSwitchTextColor and 0xFF }) { onSlider("uiSwitchTextColorB", it.toFloat()) }
                     V9TextInputRow("开启文字", "选中时显示的文字", state.uiSwitchTextOn) { onText("uiSwitchTextOn", it) }
                     V9TextInputRow("关闭文字", "未选中时显示的文字", state.uiSwitchTextOff) { onText("uiSwitchTextOff", it) }
                 }
-                Text("实时预览", fontSize = 12.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont,
+                Text("实时预览", fontSize = 12.sp, color = Ui.textSecondary, fontFamily = cnFont,
                     modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
                 V9Switch(previewSwitch) { previewSwitch = !previewSwitch }
             }
             else -> {
-                Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+                Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
                     modifier = Modifier.align(Alignment.End).clickable { onReset("设置标签栏") }.padding(bottom = 4.dp))
                 V9SegmentRow("标签样式", "圆角 / 方形", listOf("圆角", "方形"), uiTabVariant) {
                     onSegment("uiTabVariant", it)
@@ -3124,98 +3353,98 @@ private fun V9SettingsPanel(
 @Composable
 private fun V9WeaponPanel(
     modifier: Modifier,
-    state: V9State,
+    state: V9Holder,
     onToggle: (String) -> Unit,
     onSegment: (String, Int) -> Unit,
     onSlider: (String, Float) -> Unit,
     onReset: (String) -> Unit
 ) {
     Column(
-        modifier.background(Brush.verticalGradient(listOf(Color(0xFF13161D), Color(0xFF0F1217))))
+        modifier.background(Brush.verticalGradient(listOf(Ui.surface2, Ui.surface1)))
             .drawBehind {
-                drawLine(Color(0x24E9ECF2), Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
+                drawLine(Ui.hairline, Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
             }
-            .verticalScroll(rememberScrollState())
+            .panelScroll("武器渲染")
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text("武器渲染", fontSize = 14.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont)
-        Text("按感知度排序：先选渲染风格，再调该风格的参数", fontSize = 11.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont,
+        Text("武器渲染", fontSize = 14.sp, color = Ui.textPrimary, fontFamily = cnFont)
+        Text("按感知度排序：先选渲染风格，再调该风格的参数", fontSize = 11.sp, color = Ui.textSecondary, fontFamily = cnFont,
             modifier = Modifier.padding(top = 2.dp, bottom = 6.dp))
         V9SegmentRow("渲染风格", "星空 / 丝绸 / 隧道 / 晶格 / 原版 / 关闭",
             listOf("星空", "丝绸", "隧道", "晶格", "原版", "关闭"), renderStyleUiIndex(state.renderStyle)) { onSegment("renderStyle", it) }
 
         if (state.renderStyle == 1) {
-        Text("丝绸", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+        Text("丝绸", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
             modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-        Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+        Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
             modifier = Modifier.align(Alignment.End).clickable { onReset("丝绸") }.padding(bottom = 4.dp))
-        Text("调色板颜色 1-4", fontSize = 12.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont,
+        Text("调色板颜色 1-4", fontSize = 12.sp, color = Ui.textSecondary, fontFamily = cnFont,
             modifier = Modifier.padding(top = 2.dp, bottom = 2.dp))
-        V9ColorSlider("1R", (state.silkColor0 shr 16) and 0xFF) { onSlider("silkColor0R", it.toFloat()) }
-        V9ColorSlider("1G", (state.silkColor0 shr 8) and 0xFF) { onSlider("silkColor0G", it.toFloat()) }
-        V9ColorSlider("1B", state.silkColor0 and 0xFF) { onSlider("silkColor0B", it.toFloat()) }
-        V9ColorSlider("2R", (state.silkColor1 shr 16) and 0xFF) { onSlider("silkColor1R", it.toFloat()) }
-        V9ColorSlider("2G", (state.silkColor1 shr 8) and 0xFF) { onSlider("silkColor1G", it.toFloat()) }
-        V9ColorSlider("2B", state.silkColor1 and 0xFF) { onSlider("silkColor1B", it.toFloat()) }
-        V9ColorSlider("3R", (state.silkColor2 shr 16) and 0xFF) { onSlider("silkColor2R", it.toFloat()) }
-        V9ColorSlider("3G", (state.silkColor2 shr 8) and 0xFF) { onSlider("silkColor2G", it.toFloat()) }
-        V9ColorSlider("3B", state.silkColor2 and 0xFF) { onSlider("silkColor2B", it.toFloat()) }
-        V9ColorSlider("4R", (state.silkColor3 shr 16) and 0xFF) { onSlider("silkColor3R", it.toFloat()) }
-        V9ColorSlider("4G", (state.silkColor3 shr 8) and 0xFF) { onSlider("silkColor3G", it.toFloat()) }
-        V9ColorSlider("4B", state.silkColor3 and 0xFF) { onSlider("silkColor3B", it.toFloat()) }
-        Text("调色板颜色 5-8", fontSize = 12.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont,
+        V9ColorSlider("1R", { (state.silkColor0 shr 16) and 0xFF }) { onSlider("silkColor0R", it.toFloat()) }
+        V9ColorSlider("1G", { (state.silkColor0 shr 8) and 0xFF }) { onSlider("silkColor0G", it.toFloat()) }
+        V9ColorSlider("1B", { state.silkColor0 and 0xFF }) { onSlider("silkColor0B", it.toFloat()) }
+        V9ColorSlider("2R", { (state.silkColor1 shr 16) and 0xFF }) { onSlider("silkColor1R", it.toFloat()) }
+        V9ColorSlider("2G", { (state.silkColor1 shr 8) and 0xFF }) { onSlider("silkColor1G", it.toFloat()) }
+        V9ColorSlider("2B", { state.silkColor1 and 0xFF }) { onSlider("silkColor1B", it.toFloat()) }
+        V9ColorSlider("3R", { (state.silkColor2 shr 16) and 0xFF }) { onSlider("silkColor2R", it.toFloat()) }
+        V9ColorSlider("3G", { (state.silkColor2 shr 8) and 0xFF }) { onSlider("silkColor2G", it.toFloat()) }
+        V9ColorSlider("3B", { state.silkColor2 and 0xFF }) { onSlider("silkColor2B", it.toFloat()) }
+        V9ColorSlider("4R", { (state.silkColor3 shr 16) and 0xFF }) { onSlider("silkColor3R", it.toFloat()) }
+        V9ColorSlider("4G", { (state.silkColor3 shr 8) and 0xFF }) { onSlider("silkColor3G", it.toFloat()) }
+        V9ColorSlider("4B", { state.silkColor3 and 0xFF }) { onSlider("silkColor3B", it.toFloat()) }
+        Text("调色板颜色 5-8", fontSize = 12.sp, color = Ui.textSecondary, fontFamily = cnFont,
             modifier = Modifier.padding(top = 2.dp, bottom = 2.dp))
-        V9ColorSlider("5R", (state.silkColor4 shr 16) and 0xFF) { onSlider("silkColor4R", it.toFloat()) }
-        V9ColorSlider("5G", (state.silkColor4 shr 8) and 0xFF) { onSlider("silkColor4G", it.toFloat()) }
-        V9ColorSlider("5B", state.silkColor4 and 0xFF) { onSlider("silkColor4B", it.toFloat()) }
-        V9ColorSlider("6R", (state.silkColor5 shr 16) and 0xFF) { onSlider("silkColor5R", it.toFloat()) }
-        V9ColorSlider("6G", (state.silkColor5 shr 8) and 0xFF) { onSlider("silkColor5G", it.toFloat()) }
-        V9ColorSlider("6B", state.silkColor5 and 0xFF) { onSlider("silkColor5B", it.toFloat()) }
-        V9ColorSlider("7R", (state.silkColor6 shr 16) and 0xFF) { onSlider("silkColor6R", it.toFloat()) }
-        V9ColorSlider("7G", (state.silkColor6 shr 8) and 0xFF) { onSlider("silkColor6G", it.toFloat()) }
-        V9ColorSlider("7B", state.silkColor6 and 0xFF) { onSlider("silkColor6B", it.toFloat()) }
-        V9ColorSlider("8R", (state.silkColor7 shr 16) and 0xFF) { onSlider("silkColor7R", it.toFloat()) }
-        V9ColorSlider("8G", (state.silkColor7 shr 8) and 0xFF) { onSlider("silkColor7G", it.toFloat()) }
-        V9ColorSlider("8B", state.silkColor7 and 0xFF) { onSlider("silkColor7B", it.toFloat()) }
-        V9SliderRow("亮度", "-1~1", state.silkBrightness, -1f, 1f, { "%.2f".format(it) }) { onSlider("silkBrightness", it) }
-        V9SliderRow("对比度", "0.1~3.0", state.silkContrast, 0.1f, 3f, { "%.2f".format(it) }) { onSlider("silkContrast", it) }
-        V9SliderRow("饱和度", "0~3.0", state.silkSaturation, 0f, 3f, { "%.2f".format(it) }) { onSlider("silkSaturation", it) }
-        V9SliderRow("图案大小", "0.2~8.0", state.silkScale, 0.2f, 8f, { "%.2f".format(it) }) { onSlider("silkScale", it) }
-        V9SliderRow("流动强度", "0~3.0", state.silkIntensity, 0f, 3f, { "%.2f".format(it) }) { onSlider("silkIntensity", it) }
-        V9SliderRow("扭曲", "0~2.0", state.silkWarp, 0f, 2f, { "%.2f".format(it) }) { onSlider("silkWarp", it) }
-        V9SliderRow("细节", "0.5~8.0", state.silkDetail, 0.5f, 8f, { "%.2f".format(it) }) { onSlider("silkDetail", it) }
-        V9SliderRow("色相", "0~360°", state.silkHue, 0f, 6.283f, { "%.0f".format(it * 57.29578f) }) { onSlider("silkHue", it) }
-        V9SliderRow("种子", "0~20000", state.silkSeed, 0f, 20000f, { "%.0f".format(it) }) { onSlider("silkSeed", it) }
-        V9SliderRow("旋转", "-360~360°", state.silkRotation, -6.283f, 6.283f, { "%.0f".format(it * 57.29578f) }) { onSlider("silkRotation", it) }
-        V9SliderRow("漂移", "0~3.0", state.silkDrift, 0f, 3f, { "%.2f".format(it) }) { onSlider("silkDrift", it) }
-        V9SliderRow("暗角", "0~1.0", state.silkVignette, 0f, 1f, { "%.2f".format(it) }) { onSlider("silkVignette", it) }
-        V9SliderRow("柔化", "0~0.05", state.silkBlur, 0f, 0.05f, { "%.3f".format(it) }) { onSlider("silkBlur", it) }
-        V9SliderRow("颗粒", "0~1.0", state.silkGrain, 0f, 1f, { "%.2f".format(it) }) { onSlider("silkGrain", it) }
+        V9ColorSlider("5R", { (state.silkColor4 shr 16) and 0xFF }) { onSlider("silkColor4R", it.toFloat()) }
+        V9ColorSlider("5G", { (state.silkColor4 shr 8) and 0xFF }) { onSlider("silkColor4G", it.toFloat()) }
+        V9ColorSlider("5B", { state.silkColor4 and 0xFF }) { onSlider("silkColor4B", it.toFloat()) }
+        V9ColorSlider("6R", { (state.silkColor5 shr 16) and 0xFF }) { onSlider("silkColor5R", it.toFloat()) }
+        V9ColorSlider("6G", { (state.silkColor5 shr 8) and 0xFF }) { onSlider("silkColor5G", it.toFloat()) }
+        V9ColorSlider("6B", { state.silkColor5 and 0xFF }) { onSlider("silkColor5B", it.toFloat()) }
+        V9ColorSlider("7R", { (state.silkColor6 shr 16) and 0xFF }) { onSlider("silkColor6R", it.toFloat()) }
+        V9ColorSlider("7G", { (state.silkColor6 shr 8) and 0xFF }) { onSlider("silkColor6G", it.toFloat()) }
+        V9ColorSlider("7B", { state.silkColor6 and 0xFF }) { onSlider("silkColor6B", it.toFloat()) }
+        V9ColorSlider("8R", { (state.silkColor7 shr 16) and 0xFF }) { onSlider("silkColor7R", it.toFloat()) }
+        V9ColorSlider("8G", { (state.silkColor7 shr 8) and 0xFF }) { onSlider("silkColor7G", it.toFloat()) }
+        V9ColorSlider("8B", { state.silkColor7 and 0xFF }) { onSlider("silkColor7B", it.toFloat()) }
+        V9SliderRow("亮度", "-1~1", { state.silkBrightness }, -1f, 1f, { "%.2f".format(it) }) { onSlider("silkBrightness", it) }
+        V9SliderRow("对比度", "0.1~3.0", { state.silkContrast }, 0.1f, 3f, { "%.2f".format(it) }) { onSlider("silkContrast", it) }
+        V9SliderRow("饱和度", "0~3.0", { state.silkSaturation }, 0f, 3f, { "%.2f".format(it) }) { onSlider("silkSaturation", it) }
+        V9SliderRow("图案大小", "0.2~8.0", { state.silkScale }, 0.2f, 8f, { "%.2f".format(it) }) { onSlider("silkScale", it) }
+        V9SliderRow("流动强度", "0~3.0", { state.silkIntensity }, 0f, 3f, { "%.2f".format(it) }) { onSlider("silkIntensity", it) }
+        V9SliderRow("扭曲", "0~2.0", { state.silkWarp }, 0f, 2f, { "%.2f".format(it) }) { onSlider("silkWarp", it) }
+        V9SliderRow("细节", "0.5~8.0", { state.silkDetail }, 0.5f, 8f, { "%.2f".format(it) }) { onSlider("silkDetail", it) }
+        V9SliderRow("色相", "0~360°", { state.silkHue }, 0f, 6.283f, { "%.0f".format(it * 57.29578f) }) { onSlider("silkHue", it) }
+        V9SliderRow("种子", "0~20000", { state.silkSeed }, 0f, 20000f, { "%.0f".format(it) }) { onSlider("silkSeed", it) }
+        V9SliderRow("旋转", "-360~360°", { state.silkRotation }, -6.283f, 6.283f, { "%.0f".format(it * 57.29578f) }) { onSlider("silkRotation", it) }
+        V9SliderRow("漂移", "0~3.0", { state.silkDrift }, 0f, 3f, { "%.2f".format(it) }) { onSlider("silkDrift", it) }
+        V9SliderRow("暗角", "0~1.0", { state.silkVignette }, 0f, 1f, { "%.2f".format(it) }) { onSlider("silkVignette", it) }
+        V9SliderRow("柔化", "0~0.05", { state.silkBlur }, 0f, 0.05f, { "%.3f".format(it) }) { onSlider("silkBlur", it) }
+        V9SliderRow("颗粒", "0~1.0", { state.silkGrain }, 0f, 1f, { "%.2f".format(it) }) { onSlider("silkGrain", it) }
         }
         if (state.renderStyle == 4) {
-            Text("隧道", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+            Text("隧道", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                 modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-            Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+            Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
                 modifier = Modifier.align(Alignment.End).clickable { onReset("隧道") }.padding(bottom = 4.dp))
-            V9SliderRow("速度", "0.1~3.0", state.tunnelSpeed, 0.1f, 3f, { "%.2f".format(it) }) {
+            V9SliderRow("速度", "0.1~3.0", { state.tunnelSpeed }, 0.1f, 3f, { "%.2f".format(it) }) {
                 onSlider("tunnelSpeed", it)
             }
-            V9SliderRow("亮度", "0.1~3.0", state.tunnelBrightness, 0.1f, 3f, { "%.2f".format(it) }) {
+            V9SliderRow("亮度", "0.1~3.0", { state.tunnelBrightness }, 0.1f, 3f, { "%.2f".format(it) }) {
                 onSlider("tunnelBrightness", it)
             }
-            V9SliderRow("密度", "0.2~3.0", state.tunnelDensity, 0.2f, 3f, { "%.2f".format(it) }) {
+            V9SliderRow("密度", "0.2~3.0", { state.tunnelDensity }, 0.2f, 3f, { "%.2f".format(it) }) {
                 onSlider("tunnelDensity", it)
             }
-            V9SliderRow("视野", "1.0~16.0", state.tunnelFov, 1f, 16f, { "%.1f".format(it) }) {
+            V9SliderRow("视野", "1.0~16.0", { state.tunnelFov }, 1f, 16f, { "%.1f".format(it) }) {
                 onSlider("tunnelFov", it)
             }
         }
         if (state.renderStyle == 5) {
             var voronoiPreset by remember { mutableStateOf(0) }
-            Text("晶格", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+            Text("晶格", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                 modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-            Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+            Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
                 modifier = Modifier.align(Alignment.End).clickable { onReset("晶格") }.padding(bottom = 4.dp))
             V9SegmentRow("预设", "默认 / 灯光 / 细胞 / 气泡", listOf("自定义", "默认", "灯光", "细胞", "气泡"), voronoiPreset) {
                 voronoiPreset = it
@@ -3261,37 +3490,37 @@ private fun V9WeaponPanel(
                     onSlider("voronoiOffsetY", 0f)
                 }
             }
-            V9SliderRow("颜色数量", "1~5", state.voronoiColorCount.toFloat(), 1f, 5f, { "${it.toInt()}" }) {
+            V9SliderRow("颜色数量", "1~5", { state.voronoiColorCount.toFloat() }, 1f, 5f, { "${it.toInt()}" }) {
                 onSegment("voronoiColorCount", it.toInt())
             }
-            V9SliderRow("颜色步进", "1~3", state.voronoiStepsPerColor.toFloat(), 1f, 3f, { "${it.toInt()}" }) {
+            V9SliderRow("颜色步进", "1~3", { state.voronoiStepsPerColor.toFloat() }, 1f, 3f, { "${it.toInt()}" }) {
                 onSegment("voronoiStepsPerColor", it.toInt())
             }
-            V9SliderRow("扭曲", "0~0.5", state.voronoiDistortion, 0f, 0.5f, { "%.2f".format(it) }) {
+            V9SliderRow("扭曲", "0~0.5", { state.voronoiDistortion }, 0f, 0.5f, { "%.2f".format(it) }) {
                 onSlider("voronoiDistortion", it)
             }
-            V9SliderRow("间隙", "0~0.1", state.voronoiGap, 0f, 0.1f, { "%.3f".format(it) }) {
+            V9SliderRow("间隙", "0~0.1", { state.voronoiGap }, 0f, 0.1f, { "%.3f".format(it) }) {
                 onSlider("voronoiGap", it)
             }
-            V9SliderRow("内部辉光", "0~1.0", state.voronoiGlow, 0f, 1f, { "%.2f".format(it) }) {
+            V9SliderRow("内部辉光", "0~1.0", { state.voronoiGlow }, 0f, 1f, { "%.2f".format(it) }) {
                 onSlider("voronoiGlow", it)
             }
-            V9SliderRow("缩放", "0.05~4.0", state.voronoiScale, 0.05f, 4f, { "%.2f".format(it) }) {
+            V9SliderRow("缩放", "0.05~4.0", { state.voronoiScale }, 0.05f, 4f, { "%.2f".format(it) }) {
                 onSlider("voronoiScale", it)
             }
-            V9SliderRow("视野", "1.0~16.0", state.voronoiFov, 1f, 16f, { "%.1f".format(it) }) {
+            V9SliderRow("视野", "1.0~16.0", { state.voronoiFov }, 1f, 16f, { "%.1f".format(it) }) {
                 onSlider("voronoiFov", it)
             }
-            V9SliderRow("动画速度", "0~3.0", state.voronoiSpeed, 0f, 3f, { "%.2f".format(it) }) {
+            V9SliderRow("动画速度", "0~3.0", { state.voronoiSpeed }, 0f, 3f, { "%.2f".format(it) }) {
                 onSlider("voronoiSpeed", it)
             }
-            V9SliderRow("旋转", "-360~360°", state.voronoiRotation, -6.283f, 6.283f, { "%.0f°".format(it * 57.29578f) }) {
+            V9SliderRow("旋转", "-360~360°", { state.voronoiRotation }, -6.283f, 6.283f, { "%.0f°".format(it * 57.29578f) }) {
                 onSlider("voronoiRotation", it)
             }
-            V9SliderRow("横向偏移", "-1~1", state.voronoiOffsetX, -1f, 1f, { "%.2f".format(it) }) {
+            V9SliderRow("横向偏移", "-1~1", { state.voronoiOffsetX }, -1f, 1f, { "%.2f".format(it) }) {
                 onSlider("voronoiOffsetX", it)
             }
-            V9SliderRow("纵向偏移", "-1~1", state.voronoiOffsetY, -1f, 1f, { "%.2f".format(it) }) {
+            V9SliderRow("纵向偏移", "-1~1", { state.voronoiOffsetY }, -1f, 1f, { "%.2f".format(it) }) {
                 onSlider("voronoiOffsetY", it)
             }
             val colorSlots = listOf(
@@ -3302,25 +3531,25 @@ private fun V9WeaponPanel(
                 Triple("颜色 5", state.voronoiColor4, "voronoiColor4")
             )
             colorSlots.forEach { (label, color, prefix) ->
-                Text(label, fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                Text(label, fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                     modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                V9ColorSlider("R", (color shr 16) and 0xFF) { onSlider("${prefix}R", it.toFloat()) }
-                V9ColorSlider("G", (color shr 8) and 0xFF) { onSlider("${prefix}G", it.toFloat()) }
-                V9ColorSlider("B", color and 0xFF) { onSlider("${prefix}B", it.toFloat()) }
-                V9ColorSlider("A", (color ushr 24) and 0xFF) { onSlider("${prefix}A", it.toFloat()) }
+                V9ColorSlider("R", { (color shr 16) and 0xFF } ) { onSlider("${prefix}R", it.toFloat()) }
+                V9ColorSlider("G", { (color shr 8) and 0xFF } ) { onSlider("${prefix}G", it.toFloat()) }
+                V9ColorSlider("B", { color and 0xFF } ) { onSlider("${prefix}B", it.toFloat()) }
+                V9ColorSlider("A", { (color ushr 24) and 0xFF } ) { onSlider("${prefix}A", it.toFloat()) }
             }
-            Text("内部辉光色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+            Text("内部辉光色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                 modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-            V9ColorSlider("R", (state.voronoiColorGlow shr 16) and 0xFF) { onSlider("voronoiColorGlowR", it.toFloat()) }
-            V9ColorSlider("G", (state.voronoiColorGlow shr 8) and 0xFF) { onSlider("voronoiColorGlowG", it.toFloat()) }
-            V9ColorSlider("B", state.voronoiColorGlow and 0xFF) { onSlider("voronoiColorGlowB", it.toFloat()) }
-            V9ColorSlider("A", (state.voronoiColorGlow ushr 24) and 0xFF) { onSlider("voronoiColorGlowA", it.toFloat()) }
-            Text("间隙颜色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+            V9ColorSlider("R", { (state.voronoiColorGlow shr 16) and 0xFF }) { onSlider("voronoiColorGlowR", it.toFloat()) }
+            V9ColorSlider("G", { (state.voronoiColorGlow shr 8) and 0xFF }) { onSlider("voronoiColorGlowG", it.toFloat()) }
+            V9ColorSlider("B", { state.voronoiColorGlow and 0xFF }) { onSlider("voronoiColorGlowB", it.toFloat()) }
+            V9ColorSlider("A", { (state.voronoiColorGlow ushr 24) and 0xFF }) { onSlider("voronoiColorGlowA", it.toFloat()) }
+            Text("间隙颜色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                 modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-            V9ColorSlider("R", (state.voronoiColorGap shr 16) and 0xFF) { onSlider("voronoiColorGapR", it.toFloat()) }
-            V9ColorSlider("G", (state.voronoiColorGap shr 8) and 0xFF) { onSlider("voronoiColorGapG", it.toFloat()) }
-            V9ColorSlider("B", state.voronoiColorGap and 0xFF) { onSlider("voronoiColorGapB", it.toFloat()) }
-            V9ColorSlider("A", (state.voronoiColorGap ushr 24) and 0xFF) { onSlider("voronoiColorGapA", it.toFloat()) }
+            V9ColorSlider("R", { (state.voronoiColorGap shr 16) and 0xFF }) { onSlider("voronoiColorGapR", it.toFloat()) }
+            V9ColorSlider("G", { (state.voronoiColorGap shr 8) and 0xFF }) { onSlider("voronoiColorGapG", it.toFloat()) }
+            V9ColorSlider("B", { state.voronoiColorGap and 0xFF }) { onSlider("voronoiColorGapB", it.toFloat()) }
+            V9ColorSlider("A", { (state.voronoiColorGap ushr 24) and 0xFF }) { onSlider("voronoiColorGapA", it.toFloat()) }
         }
     }
 }
@@ -3328,99 +3557,98 @@ private fun V9WeaponPanel(
 @Composable
 private fun V9SlashPanel(
     modifier: Modifier,
-    state: V9State,
-    uiTabVariant: Int,
-    uiTabSize: Int,
-    uiTabCompact: Boolean,
+    state: V9Holder,
     onToggle: (String) -> Unit,
     onSlider: (String, Float) -> Unit,
     onSegment: (String, Int) -> Unit,
     onReset: (String) -> Unit
 ) {
+    // Read here so V9Center no longer subscribes to the tab preferences.
+    val uiTabVariant = state.uiTabVariant
+    val uiTabSize = state.uiTabSize
+    val uiTabCompact = state.uiTabCompact
     var slashTab by remember { mutableStateOf("基础") }
     Column(
-        modifier.background(Brush.verticalGradient(listOf(Color(0xFF13161D), Color(0xFF0F1217))))
+        modifier.background(Brush.verticalGradient(listOf(Ui.surface2, Ui.surface1)))
             .drawBehind {
-                drawLine(Color(0x24E9ECF2), Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
+                drawLine(Ui.hairline, Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
             }
-            .verticalScroll(rememberScrollState())
+            .panelScroll("斩击")
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text("斩击设置", fontSize = 14.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont)
-        Text("左键命中目标时在命中点播放空间斩", fontSize = 11.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont,
+        Text("斩击设置", fontSize = 14.sp, color = Ui.textPrimary, fontFamily = cnFont)
+        Text("左键命中目标时在命中点播放空间斩", fontSize = 11.sp, color = Ui.textSecondary, fontFamily = cnFont,
             modifier = Modifier.padding(top = 2.dp, bottom = 6.dp))
         V9LobeTabs(
             items = listOf("基础", "外观", "动画", "星空"),
             selected = slashTab,
             onSelect = { slashTab = it },
-            variant = uiTabVariant,
-            size = uiTabSize,
-            compact = uiTabCompact,
+            state = state,
             modifier = Modifier.padding(bottom = 6.dp)
         )
 
         when (slashTab) {
             "外观" -> {
-                Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+                Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
                     modifier = Modifier.align(Alignment.End).clickable { onReset("斩击外观") }.padding(bottom = 4.dp))
-                V9SliderRow("黑芯宽度", "0.30~0.98", state.slashCoreWidth, 0.3f, 0.98f, { "%.2f".format(it) }) { onSlider("slashCoreWidth", it) }
-                V9SliderRow("黑芯亮度", "0~100%", state.slashCoreShade, 0f, 1f, { "%.0f%%".format(it * 100f) }) { onSlider("slashCoreShade", it) }
-                V9SliderRow("白边起始", "0.50~0.99", state.slashEdgeWidth, 0.5f, 0.99f, { "%.2f".format(it) }) { onSlider("slashEdgeWidth", it) }
-                V9SliderRow("白边亮度", "0.1~2.0", state.slashEdgeBrightness, 0.1f, 2f, { "%.2f".format(it) }) { onSlider("slashEdgeBrightness", it) }
-                V9SliderRow("发光宽度", "0.60~0.99", state.slashGlowWidth, 0.6f, 0.99f, { "%.2f".format(it) }) { onSlider("slashGlowWidth", it) }
-                V9SliderRow("发光强度", "0~3.0", state.slashGlowStrength, 0f, 3f, { "%.2f".format(it) }) { onSlider("slashGlowStrength", it) }
-                V9SliderRow("裂纹噪点", "0~2.0", state.slashNoiseStrength, 0f, 2f, { "%.2f".format(it) }) { onSlider("slashNoiseStrength", it) }
-                Text("黑芯颜色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                V9SliderRow("黑芯宽度", "0.30~0.98", { state.slashCoreWidth }, 0.3f, 0.98f, { "%.2f".format(it) }) { onSlider("slashCoreWidth", it) }
+                V9SliderRow("黑芯亮度", "0~100%", { state.slashCoreShade }, 0f, 1f, { "%.0f%%".format(it * 100f) }) { onSlider("slashCoreShade", it) }
+                V9SliderRow("白边起始", "0.50~0.99", { state.slashEdgeWidth }, 0.5f, 0.99f, { "%.2f".format(it) }) { onSlider("slashEdgeWidth", it) }
+                V9SliderRow("白边亮度", "0.1~2.0", { state.slashEdgeBrightness }, 0.1f, 2f, { "%.2f".format(it) }) { onSlider("slashEdgeBrightness", it) }
+                V9SliderRow("发光宽度", "0.60~0.99", { state.slashGlowWidth }, 0.6f, 0.99f, { "%.2f".format(it) }) { onSlider("slashGlowWidth", it) }
+                V9SliderRow("发光强度", "0~3.0", { state.slashGlowStrength }, 0f, 3f, { "%.2f".format(it) }) { onSlider("slashGlowStrength", it) }
+                V9SliderRow("裂纹噪点", "0~2.0", { state.slashNoiseStrength }, 0f, 2f, { "%.2f".format(it) }) { onSlider("slashNoiseStrength", it) }
+                Text("黑芯颜色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                     modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                V9ColorSlider("R", (state.slashCoreColor shr 16) and 0xFF) { onSlider("slashCoreColorR", it.toFloat()) }
-                V9ColorSlider("G", (state.slashCoreColor shr 8) and 0xFF) { onSlider("slashCoreColorG", it.toFloat()) }
-                V9ColorSlider("B", state.slashCoreColor and 0xFF) { onSlider("slashCoreColorB", it.toFloat()) }
-                Text("白边颜色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                V9ColorSlider("R", { (state.slashCoreColor shr 16) and 0xFF }) { onSlider("slashCoreColorR", it.toFloat()) }
+                V9ColorSlider("G", { (state.slashCoreColor shr 8) and 0xFF }) { onSlider("slashCoreColorG", it.toFloat()) }
+                V9ColorSlider("B", { state.slashCoreColor and 0xFF }) { onSlider("slashCoreColorB", it.toFloat()) }
+                Text("白边颜色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                     modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                V9ColorSlider("R", (state.slashEdgeColor shr 16) and 0xFF) { onSlider("slashEdgeColorR", it.toFloat()) }
-                V9ColorSlider("G", (state.slashEdgeColor shr 8) and 0xFF) { onSlider("slashEdgeColorG", it.toFloat()) }
-                V9ColorSlider("B", state.slashEdgeColor and 0xFF) { onSlider("slashEdgeColorB", it.toFloat()) }
-                Text("发光颜色", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont,
+                V9ColorSlider("R", { (state.slashEdgeColor shr 16) and 0xFF }) { onSlider("slashEdgeColorR", it.toFloat()) }
+                V9ColorSlider("G", { (state.slashEdgeColor shr 8) and 0xFF }) { onSlider("slashEdgeColorG", it.toFloat()) }
+                V9ColorSlider("B", { state.slashEdgeColor and 0xFF }) { onSlider("slashEdgeColorB", it.toFloat()) }
+                Text("发光颜色", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont,
                     modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-                V9ColorSlider("R", (state.slashGlowColor shr 16) and 0xFF) { onSlider("slashGlowColorR", it.toFloat()) }
-                V9ColorSlider("G", (state.slashGlowColor shr 8) and 0xFF) { onSlider("slashGlowColorG", it.toFloat()) }
-                V9ColorSlider("B", state.slashGlowColor and 0xFF) { onSlider("slashGlowColorB", it.toFloat()) }
+                V9ColorSlider("R", { (state.slashGlowColor shr 16) and 0xFF }) { onSlider("slashGlowColorR", it.toFloat()) }
+                V9ColorSlider("G", { (state.slashGlowColor shr 8) and 0xFF }) { onSlider("slashGlowColorG", it.toFloat()) }
+                V9ColorSlider("B", { state.slashGlowColor and 0xFF }) { onSlider("slashGlowColorB", it.toFloat()) }
             }
             "动画" -> {
-                Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+                Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
                     modifier = Modifier.align(Alignment.End).clickable { onReset("斩击动画") }.padding(bottom = 4.dp))
-                V9SliderRow("扫开速度", "0.05~0.95", state.slashSweepSpeed, 0.05f, 0.95f, { "%.2f".format(it) }) { onSlider("slashSweepSpeed", it) }
-                V9SliderRow("扫开柔和度", "0.02~0.60", state.slashSweepSoftness, 0.02f, 0.6f, { "%.2f".format(it) }) { onSlider("slashSweepSoftness", it) }
-                V9SliderRow("保持时长", "0~0.8", state.slashHoldFraction, 0f, 0.8f, { "%.2f".format(it) }) { onSlider("slashHoldFraction", it) }
-                V9SliderRow("淡出起始", "0.30~0.95", state.slashFadeStart, 0.3f, 0.95f, { "%.2f".format(it) }) { onSlider("slashFadeStart", it) }
-                V9SliderRow("淡出时长", "0.02~0.70", state.slashFadeDuration, 0.02f, 0.7f, { "%.2f".format(it) }) { onSlider("slashFadeDuration", it) }
-                V9SliderRow("命中点外移", "0~0.5", state.slashSurfaceOffset, 0f, 0.5f, { "%.2f".format(it) }) { onSlider("slashSurfaceOffset", it) }
-                V9SliderRow("随机倾角", "0~360°", state.slashRollRange, 0f, 360f, { "%.0f".format(it) }) { onSlider("slashRollRange", it) }
+                V9SliderRow("扫开速度", "0.05~0.95", { state.slashSweepSpeed }, 0.05f, 0.95f, { "%.2f".format(it) }) { onSlider("slashSweepSpeed", it) }
+                V9SliderRow("扫开柔和度", "0.02~0.60", { state.slashSweepSoftness }, 0.02f, 0.6f, { "%.2f".format(it) }) { onSlider("slashSweepSoftness", it) }
+                V9SliderRow("保持时长", "0~0.8", { state.slashHoldFraction }, 0f, 0.8f, { "%.2f".format(it) }) { onSlider("slashHoldFraction", it) }
+                V9SliderRow("淡出起始", "0.30~0.95", { state.slashFadeStart }, 0.3f, 0.95f, { "%.2f".format(it) }) { onSlider("slashFadeStart", it) }
+                V9SliderRow("淡出时长", "0.02~0.70", { state.slashFadeDuration }, 0.02f, 0.7f, { "%.2f".format(it) }) { onSlider("slashFadeDuration", it) }
+                V9SliderRow("命中点外移", "0~0.5", { state.slashSurfaceOffset }, 0f, 0.5f, { "%.2f".format(it) }) { onSlider("slashSurfaceOffset", it) }
+                V9SliderRow("随机倾角", "0~360°", { state.slashRollRange }, 0f, 360f, { "%.0f".format(it) }) { onSlider("slashRollRange", it) }
             }
             "星空" -> {
-                Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+                Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
                     modifier = Modifier.align(Alignment.End).clickable { onReset("斩击星空") }.padding(bottom = 4.dp))
                 V9SwitchRow("星空开关", "刀身黑芯内显示星点", state.slashStarfield) { onToggle("slashStarfield") }
-                V9SliderRow("星点密度", "0.05~3.0", state.slashStarDensity, 0.05f, 3f, { "%.2f".format(it) }) { onSlider("slashStarDensity", it) }
-                V9SliderRow("星点亮度", "0~3.0", state.slashStarBrightness, 0f, 3f, { "%.2f".format(it) }) { onSlider("slashStarBrightness", it) }
-                V9SliderRow("星点大小", "0.2~5.0", state.slashStarSize, 0.2f, 5f, { "%.2f".format(it) }) { onSlider("slashStarSize", it) }
+                V9SliderRow("星点密度", "0.05~3.0", { state.slashStarDensity }, 0.05f, 3f, { "%.2f".format(it) }) { onSlider("slashStarDensity", it) }
+                V9SliderRow("星点亮度", "0~3.0", { state.slashStarBrightness }, 0f, 3f, { "%.2f".format(it) }) { onSlider("slashStarBrightness", it) }
+                V9SliderRow("星点大小", "0.2~5.0", { state.slashStarSize }, 0.2f, 5f, { "%.2f".format(it) }) { onSlider("slashStarSize", it) }
                 V9SegmentRow("颜色模式", "黑白或彩虹", listOf("黑白", "彩虹"), state.slashStarColorMode) { onSegment("slashStarColorMode", it) }
             }
             else -> {
-                Text("恢复默认", fontSize = 11.sp, color = Color(0xFFFF7A5C), fontFamily = cnFont,
+                Text("恢复默认", fontSize = 11.sp, color = Ui.accent, fontFamily = cnFont,
                     modifier = Modifier.align(Alignment.End).clickable { onReset("斩击基础") }.padding(bottom = 4.dp))
                 V9SwitchRow("斩击开关", "左键命中时播放空间斩", state.slashEnabled) { onToggle("slashEnabled") }
                 V9SwitchRow("深度遮挡", "开启后被怪物/世界遮挡", state.slashDepthTest) { onToggle("slashDepthTest") }
                 V9SwitchRow("随机偏角", "正对视线时随机角度", state.slashRandomAngle) { onToggle("slashRandomAngle") }
                 V9SwitchRow("加法发光", "白边外发光层", state.slashGlow) { onToggle("slashGlow") }
-                V9SliderRow("时长", "0.1~1.0 秒", state.slashDuration, 0.1f, 1f, { "%.2f".format(it) }) { onSlider("slashDuration", it) }
-                V9SliderRow("长度倍率", "0.5~5.0", state.slashLengthMult, 0.5f, 5f, { "%.2f".format(it) }) { onSlider("slashLengthMult", it) }
-                V9SliderRow("刀宽比例", "0.02~0.50", state.slashWidthRatio, 0.02f, 0.5f, { "%.3f".format(it) }) { onSlider("slashWidthRatio", it) }
-                V9SliderRow("厚度比例", "0.002~0.20", state.slashThicknessRatio, 0.002f, 0.2f, { "%.3f".format(it) }) { onSlider("slashThicknessRatio", it) }
-                V9SliderRow("尖端淡出", "0.02~0.50", state.slashTipFade, 0.02f, 0.5f, { "%.2f".format(it) }) { onSlider("slashTipFade", it) }
-                V9SliderRow("起始缩放", "0.2~3.0", state.slashStartScale, 0.2f, 3f, { "%.2f".format(it) }) { onSlider("slashStartScale", it) }
-                V9SliderRow("结束缩放", "0.2~3.0", state.slashEndScale, 0.2f, 3f, { "%.2f".format(it) }) { onSlider("slashEndScale", it) }
+                V9SliderRow("时长", "0.1~1.0 秒", { state.slashDuration }, 0.1f, 1f, { "%.2f".format(it) }) { onSlider("slashDuration", it) }
+                V9SliderRow("长度倍率", "0.5~5.0", { state.slashLengthMult }, 0.5f, 5f, { "%.2f".format(it) }) { onSlider("slashLengthMult", it) }
+                V9SliderRow("刀宽比例", "0.02~0.50", { state.slashWidthRatio }, 0.02f, 0.5f, { "%.3f".format(it) }) { onSlider("slashWidthRatio", it) }
+                V9SliderRow("厚度比例", "0.002~0.20", { state.slashThicknessRatio }, 0.002f, 0.2f, { "%.3f".format(it) }) { onSlider("slashThicknessRatio", it) }
+                V9SliderRow("尖端淡出", "0.02~0.50", { state.slashTipFade }, 0.02f, 0.5f, { "%.2f".format(it) }) { onSlider("slashTipFade", it) }
+                V9SliderRow("起始缩放", "0.2~3.0", { state.slashStartScale }, 0.2f, 3f, { "%.2f".format(it) }) { onSlider("slashStartScale", it) }
+                V9SliderRow("结束缩放", "0.2~3.0", { state.slashEndScale }, 0.2f, 3f, { "%.2f".format(it) }) { onSlider("slashEndScale", it) }
             }
         }
     }
@@ -3429,8 +3657,8 @@ private fun V9SlashPanel(
 @Composable
 private fun V9Label(label: String, desc: String, modifier: Modifier = Modifier) {
     Column(modifier) {
-        Text(label, fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont)
-        Text(desc, fontSize = 10.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont, maxLines = 2)
+        Text(label, fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont)
+        Text(desc, fontSize = 10.sp, color = Ui.textSecondary, fontFamily = cnFont, maxLines = 2)
     }
 }
 
@@ -3465,13 +3693,23 @@ private fun V9Switch(value: Boolean, onToggle: () -> Unit) {
             animationSpec = tween(300, easing = FastOutSlowInEasing),
             label = "slideOn"
         )
+        val pressed = isPressed(interaction)
         Box(
             Modifier.width(trackW).height(switchSize)
-                .shadow(2.dp, RoundedCornerShape(switchSize), ambientColor = Color(0x26000000), spotColor = Color(0x26000000))
+                .shadow(2.dp, RoundedCornerShape(switchSize), ambientColor = Ui.shadowSlight, spotColor = Ui.shadowSlight)
                 .clip(RoundedCornerShape(switchSize))
-                .background(Color(prefs.switchSlideTrack))
-                .border(1.dp, Color(0x1A000000), RoundedCornerShape(switchSize))
+                .background(
+                    Color(prefs.switchSlideTrack).copy(
+                        alpha = when {
+                            pressed -> 0.68f
+                            hovered -> 0.86f
+                            else -> 1f
+                        }
+                    )
+                )
+                .border(1.dp, Ui.borderDark, RoundedCornerShape(switchSize))
                 .hoverable(interaction)
+                .handCursor()
                 .clickable(interactionSource = interaction, indication = null, onClick = onToggle)
         ) {
             Box(
@@ -3505,12 +3743,22 @@ private fun V9Switch(value: Boolean, onToggle: () -> Unit) {
             animationSpec = tween(180, easing = FastOutSlowInEasing),
             label = "textOnY"
         )
+        val pressed = isPressed(interaction)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.width(trackW).height(switchSize)
                     .clip(RoundedCornerShape(switchSize))
-                    .background(if (value) Color(prefs.switchTextTrackOn) else Color(prefs.switchTextTrackOff))
+                    .background(
+                        Color(if (value) prefs.switchTextTrackOn else prefs.switchTextTrackOff).copy(
+                            alpha = when {
+                                pressed -> 0.68f
+                                hovered -> 0.86f
+                                else -> 1f
+                            }
+                        )
+                    )
                     .hoverable(interaction)
+                    .handCursor()
                     .clickable(interactionSource = interaction, indication = null, onClick = onToggle)
             ) {
                 Box(
@@ -3523,7 +3771,8 @@ private fun V9Switch(value: Boolean, onToggle: () -> Unit) {
             Box(
                 Modifier.width(40.dp).height(switchSize)
                     .clip(RoundedCornerShape(4.dp))
-                    .clickable(onClick = onToggle)
+                    .handCursor()
+                    .clickable(interactionSource = interaction, indication = null, onClick = onToggle)
             ) {
                 Text(
                     prefs.switchTextOff,
@@ -3560,7 +3809,7 @@ private fun V9Switch(value: Boolean, onToggle: () -> Unit) {
         )
         Box(
             Modifier.width(trackW).height(switchSize)
-                .shadow(3.dp, RoundedCornerShape(switchSize), ambientColor = Color(0x33000000), spotColor = Color(0x33000000))
+                .shadow(3.dp, RoundedCornerShape(switchSize), ambientColor = Ui.shadowMedium, spotColor = Ui.shadowMedium)
                 .clip(RoundedCornerShape(switchSize))
                 .then(
                     if (value) {
@@ -3573,7 +3822,7 @@ private fun V9Switch(value: Boolean, onToggle: () -> Unit) {
                 .clickable(interactionSource = interaction, indication = null, onClick = onToggle)
         ) {
             Canvas(Modifier.fillMaxSize()) {
-                val dotColor = if (value) Color(0xFFFFFFFF) else Color(0xFF9B9B9B)
+                val dotColor = if (value) Ui.knobTop else Ui.knobOff
                 val unit = this.size.minDimension
                 val dotY = unit * (if (value) 0.52f else 0.5f)
                 drawCircle(dotColor, radius = unit * 0.04f, center = Offset(unit * 0.24f, dotY), alpha = 1f - decorReveal)
@@ -3583,8 +3832,8 @@ private fun V9Switch(value: Boolean, onToggle: () -> Unit) {
             Box(
                 Modifier.offset(x = knobX, y = knobY).width(knobD).height(knobD)
                     .clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(Color(0xFFDEDEDE), Color(0xFFFFFFFF))))
-                    .border(1.dp, Color(0x1FFFFFFF), CircleShape)
+                    .background(Brush.linearGradient(listOf(Ui.knobEdge, Ui.knobTop)))
+                    .border(1.dp, Ui.overlayPressed, CircleShape)
             )
         }
     } else {
@@ -3596,11 +3845,11 @@ private fun V9Switch(value: Boolean, onToggle: () -> Unit) {
         Box(
             Modifier.width(54.dp).height(28.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(if (value) Color(0xFFFF7A5C) else if (hovered) Color(0xFF2A2F38) else Color(0xFF242A33))
+                .background(if (value) Ui.accent else if (hovered) Ui.surfaceHover else Ui.surface4)
                 .drawBehind {
-                    drawLine(Color(0x30FFFFFF), Offset(4f, 2f), Offset(size.width - 4f, 2f), 1f)
+                    drawLine(Ui.innerHighlightStrong, Offset(4f, 2f), Offset(size.width - 4f, 2f), 1f)
                 }
-                .border(1.dp, if (value) Color(0x40FFA08A) else Color(0x14FFFFFF), RoundedCornerShape(14.dp))
+                .border(1.dp, if (value) Ui.accentHover.copy(alpha = 0.25f) else Ui.borderQuiet, RoundedCornerShape(14.dp))
                 .hoverable(interaction)
                 .clickable(interactionSource = interaction, indication = null, onClick = onToggle)
         ) {
@@ -3609,14 +3858,14 @@ private fun V9Switch(value: Boolean, onToggle: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("on", fontSize = 9.sp, color = if (value) Color(0xFFFFFFFF) else Color(0xFF646D7B), fontFamily = cnFont, maxLines = 1)
-                Text("off", fontSize = 9.sp, color = if (!value) Color(0xFF9AA2B0) else Color(0xFF646D7B), fontFamily = cnFont, maxLines = 1)
+                Text("on", fontSize = 9.sp, color = if (value) Ui.knobTop else Ui.textTertiary, fontFamily = cnFont, maxLines = 1)
+                Text("off", fontSize = 9.sp, color = if (!value) Ui.textSecondary else Ui.textTertiary, fontFamily = cnFont, maxLines = 1)
             }
             Box(
                 Modifier.offset(x = knobX, y = 5.dp).width(18.dp).height(18.dp)
                     .clip(CircleShape)
-                    .background(Brush.verticalGradient(listOf(Color(0xFFFFFFFF), Color(0xFFE6E9EF))))
-                    .border(1.dp, Color(0x2EFFFFFF), CircleShape)
+                    .background(Brush.verticalGradient(listOf(Ui.knobTop, Ui.knobBottom)))
+                    .border(1.dp, Ui.innerHighlight, CircleShape)
             )
         }
     }
@@ -3629,15 +3878,30 @@ private fun V9SegmentRow(label: String, desc: String, options: List<String>, sel
         verticalAlignment = Alignment.CenterVertically
     ) {
         V9Label(label, desc, Modifier.weight(1f))
-        Row(Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xFF0F1116)).padding(3.dp)) {
+        Row(Modifier.clip(RoundedCornerShape(14.dp)).background(Ui.surface1).padding(3.dp)) {
             options.forEachIndexed { i, opt ->
+                val interaction = remember(opt) { MutableInteractionSource() }
+                val hovered by interaction.collectIsHoveredAsState()
+                val pressed = isPressed(interaction)
+                val isSelected = i == selected
+                val reveal by animateFloatAsState(
+                    targetValue = if (isSelected) 1f else 0f,
+                    animationSpec = tween(180, easing = FastOutSlowInEasing),
+                    label = "segmentSelect"
+                )
+                val tint = when {
+                    pressed -> 0.25f
+                    else -> 0.16f * reveal + if (hovered && !isSelected) 0.06f else 0f
+                }
                 Box(
                     Modifier.clip(RoundedCornerShape(11.dp))
-                        .background(if (i == selected) Color(0x29FF7A5C) else Color.Transparent)
-                        .clickable { onChange(i) }
+                        .background(Ui.accent.copy(alpha = tint))
+                        .hoverable(interaction)
+                        .handCursor()
+                        .clickable(interactionSource = interaction, indication = null) { onChange(i) }
                         .padding(horizontal = 9.dp, vertical = 6.dp)
                 ) {
-                    Text(opt, fontSize = 12.sp, color = if (i == selected) Color(0xFFFFA08A) else Color(0xFF9AA2B0), fontFamily = cnFont)
+                    Text(opt, fontSize = 12.sp, color = if (isSelected) Ui.accentHover else Ui.textSecondary, fontFamily = cnFont)
                 }
             }
         }
@@ -3648,12 +3912,13 @@ private fun V9SegmentRow(label: String, desc: String, options: List<String>, sel
 private fun V9SliderRow(
     label: String,
     desc: String,
-    value: Float,
+    value: () -> Float,
     min: Float,
     max: Float,
     format: (Float) -> String,
     onChange: (Float) -> Unit
 ) {
+    val value = value()   // read here, so only this row subscribes
     Row(
         Modifier.fillMaxWidth().heightIn(min = 36.dp).then(hoverBackground()).padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -3680,8 +3945,8 @@ private fun V9TextInputRow(label: String, desc: String, value: String, onChange:
         Box(
             Modifier.width(120.dp).height(28.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF12151B))
-                .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(8.dp))
+                .background(Ui.surface2)
+                .border(1.dp, Ui.borderQuiet, RoundedCornerShape(8.dp))
                 .padding(horizontal = 8.dp),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -3689,8 +3954,8 @@ private fun V9TextInputRow(label: String, desc: String, value: String, onChange:
                 value = value,
                 onValueChange = onChange,
                 singleLine = true,
-                textStyle = TextStyle(fontSize = 12.sp, color = Color(0xFFD7DCE5), fontFamily = cnFont),
-                cursorBrush = SolidColor(Color(0xFFFF7A5C)),
+                textStyle = TextStyle(fontSize = 12.sp, color = Ui.textBody, fontFamily = cnFont),
+                cursorBrush = SolidColor(Ui.accent),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -3707,16 +3972,30 @@ private fun V9SliderTrack(
 ) {
     val prefs = LocalV9UiPrefs.current
     val density = LocalDensity.current
-    val thumbR = with(density) { prefs.sliderThumb.toPx() / 2f }
+    val baseThumbR = with(density) { prefs.sliderThumb.toPx() / 2f }
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val pressed = isPressed(interaction)
+    val emphasis by animateFloatAsState(
+        targetValue = when {
+            pressed -> 1f
+            hovered -> 0.55f
+            else -> 0f
+        },
+        animationSpec = tween(140, easing = FastOutSlowInEasing),
+        label = "sliderEmphasis"
+    )
 
     fun pick(x: Float, widthPx: Int): Float {
-        val usable = (widthPx - thumbR * 2).coerceAtLeast(1f)
-        val f = ((x - thumbR) / usable).coerceIn(0f, 1f)
+        val usable = (widthPx - baseThumbR * 2).coerceAtLeast(1f)
+        val f = ((x - baseThumbR) / usable).coerceIn(0f, 1f)
         return min + f * (max - min)
     }
 
     Canvas(
         modifier.height(prefs.sliderHeight)
+            .handCursor()
+            .hoverable(interaction)
             .pointerInput(min, max) {
                 detectTapGestures { offset ->
                     onChange(pick(offset.x, size.width))
@@ -3731,13 +4010,13 @@ private fun V9SliderTrack(
     ) {
         val w = size.width
         val h = size.height
-        val trackH = 6.dp.toPx()
+        val trackH = (6.dp.toPx() * (1f + 0.25f * emphasis))
         val trackY = h / 2 - trackH / 2
         val fraction = ((value - min) / (max - min)).coerceIn(0f, 1f)
         val corner = CornerRadius(trackH / 2)
 
         drawRoundRect(
-            Color(0xFF242A33),
+            lerp(Ui.surface4, Ui.surfaceHover, emphasis),
             topLeft = Offset(0f, trackY),
             size = Size(w, trackH),
             cornerRadius = corner
@@ -3745,16 +4024,17 @@ private fun V9SliderTrack(
         val fillW = w * fraction
         if (fillW > 0) {
             drawRoundRect(
-                Color(0xFFFF7A5C),
+                lerp(Ui.accent, Ui.accentHover, emphasis * 0.6f),
                 topLeft = Offset(0f, trackY),
                 size = Size(fillW, trackH),
                 cornerRadius = corner
             )
         }
-        val thumbX = thumbR + (w - thumbR * 2) * fraction
-        drawCircle(Color(0xFFF4F6FA), radius = thumbR, center = Offset(thumbX, h / 2))
+        val thumbR = baseThumbR * (1f + 0.18f * emphasis)
+        val thumbX = baseThumbR + (w - baseThumbR * 2) * fraction
+        drawCircle(Ui.thumb, radius = thumbR, center = Offset(thumbX, h / 2))
         drawCircle(
-            Color(0xFF3A3F49), radius = thumbR,
+            Ui.thumbEdge, radius = thumbR,
             center = Offset(thumbX, h / 2), style = Stroke(width = 1.dp.toPx())
         )
     }
@@ -3791,8 +4071,8 @@ private fun V9EditableValue(
             if (isEditing) {
                 Box(
                     Modifier.width(88.dp).height(22.dp).clip(RoundedCornerShape(11.dp))
-                        .background(Color(0xFF12151B))
-                        .border(1.dp, Color(0xFFFF7A5C), RoundedCornerShape(11.dp))
+                        .background(Ui.surface2)
+                        .border(1.dp, Ui.accent, RoundedCornerShape(11.dp))
                         .padding(horizontal = 6.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
@@ -3800,8 +4080,8 @@ private fun V9EditableValue(
                         value = text,
                         onValueChange = { text = it },
                         singleLine = true,
-                        textStyle = TextStyle(fontSize = 11.sp, color = Color(0xFFD7DCE5), fontFamily = cnFont),
-                        cursorBrush = SolidColor(Color(0xFFFF7A5C)),
+                        textStyle = TextStyle(fontSize = 11.sp, color = Ui.textBody, fontFamily = cnFont),
+                        cursorBrush = SolidColor(Ui.accent),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         keyboardActions = KeyboardActions(onDone = { commit() }),
                         modifier = Modifier.fillMaxWidth()
@@ -3816,8 +4096,8 @@ private fun V9EditableValue(
             } else {
                 Row(
                     Modifier.height(22.dp).clip(RoundedCornerShape(11.dp))
-                        .background(Color(0xFF1A1E26))
-                        .border(1.dp, Color(0x14E9ECF2), RoundedCornerShape(11.dp))
+                        .background(Ui.surface3)
+                        .border(1.dp, Ui.hairlineFaint, RoundedCornerShape(11.dp))
                         .padding(horizontal = 8.dp)
                         .clickable {
                             text = value.toString()
@@ -3826,7 +4106,7 @@ private fun V9EditableValue(
                         },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(display, fontSize = 11.sp, color = Color(0xFFD7DCE5), fontFamily = cnFont, maxLines = 1)
+                    Text(display, fontSize = 11.sp, color = Ui.textBody, fontFamily = cnFont, maxLines = 1)
                 }
             }
         }
@@ -3836,7 +4116,7 @@ private fun V9EditableValue(
 @Composable
 private fun FaceIcon(active: Boolean, smile: Boolean) {
     Canvas(Modifier.width(14.dp).height(14.dp)) {
-        val c = if (active) Color(0xFFFF7A5C) else Color(0xFF646D7B)
+        val c = if (active) Ui.accent else Ui.textTertiary
         val r = size.minDimension / 2f
         drawCircle(c, radius = r, center = center, style = Stroke(width = 1.2f))
         drawCircle(c, radius = r * 0.12f, center = Offset(center.x - r * 0.4f, center.y - r * 0.25f))
@@ -3874,7 +4154,7 @@ private fun V9SwatchRow(
                     Modifier.width(18.dp).height(18.dp)
                         .border(
                             if (!custom && i == selected) 2.dp else 1.dp,
-                            if (!custom && i == selected) Color(0xFFF2F4F8) else Color(0x38E9ECF2),
+                            if (!custom && i == selected) Ui.textPrimary else Ui.hairlineStrong,
                             CircleShape
                         )
                         .background(Color(c), CircleShape)
@@ -3884,9 +4164,9 @@ private fun V9SwatchRow(
             }
             Box(
                 Modifier.width(18.dp).height(18.dp)
-                    .border(if (custom) 2.dp else 1.dp, if (custom) Color(0xFFF2F4F8) else Color(0x38E9ECF2), CircleShape)
+                    .border(if (custom) 2.dp else 1.dp, if (custom) Ui.textPrimary else Ui.hairlineStrong, CircleShape)
                     .background(
-                        Brush.linearGradient(listOf(Color(0xFFFF7A5C), Color(0xFF7C5CFF), Color(0xFF3DD6E8))),
+                        Brush.linearGradient(Ui.spectrum),
                         CircleShape
                     )
                     .clickable { onCustomColor(customColor) }
@@ -3894,13 +4174,13 @@ private fun V9SwatchRow(
         }
         if (custom) {
             Spacer(Modifier.height(2.dp))
-            V9ColorSlider("R", (customColor shr 16) and 0xFF) { v ->
+            V9ColorSlider("R", { (customColor shr 16) and 0xFF } ) { v ->
                 onCustomColor((customColor and 0xFF00FFFF.toInt()) or (v shl 16))
             }
-            V9ColorSlider("G", (customColor shr 8) and 0xFF) { v ->
+            V9ColorSlider("G", { (customColor shr 8) and 0xFF } ) { v ->
                 onCustomColor((customColor and 0xFFFF00FF.toInt()) or (v shl 8))
             }
-            V9ColorSlider("B", customColor and 0xFF) { v ->
+            V9ColorSlider("B", { customColor and 0xFF } ) { v ->
                 onCustomColor((customColor and 0xFFFFFF00.toInt()) or v)
             }
         }
@@ -3908,12 +4188,13 @@ private fun V9SwatchRow(
 }
 
 @Composable
-private fun V9ColorSlider(label: String, value: Int, onChange: (Int) -> Unit) {
+private fun V9ColorSlider(label: String, value: () -> Int, onChange: (Int) -> Unit) {
+    val value = value()   // read here, so only this slider subscribes
     Row(
         Modifier.fillMaxWidth().heightIn(min = 28.dp).padding(start = 4.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, fontSize = 11.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont, modifier = Modifier.width(14.dp))
+        Text(label, fontSize = 11.sp, color = Ui.textSecondary, fontFamily = cnFont, modifier = Modifier.width(14.dp))
         V9SliderTrack(value.toFloat(), 0f, 255f, { onChange(it.toInt()) }, Modifier.weight(1f))
         Spacer(Modifier.width(6.dp))
         V9EditableValue(value.toString(), value.toFloat(), 0f, 255f) { onChange(it.toInt().coerceIn(0, 255)) }
@@ -3927,18 +4208,18 @@ private fun V9PresetRow(presetSlot: Int, onLoad: (Int) -> Unit, onSave: () -> Un
         verticalAlignment = Alignment.CenterVertically
     ) {
         V9Label("配置预设", "槽 1-3 保存/载入", Modifier.weight(1f))
-        Row(Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xFF0F1116)).padding(3.dp)) {
+        Row(Modifier.clip(RoundedCornerShape(14.dp)).background(Ui.surface1).padding(3.dp)) {
             (0..2).forEach { i ->
                 Box(
                     Modifier.clip(RoundedCornerShape(11.dp))
-                        .background(if (i == presetSlot) Color(0x29FF7A5C) else Color.Transparent)
+                        .background(if (i == presetSlot) Ui.accentTint else Color.Transparent)
                         .clickable { onLoad(i) }
                         .padding(horizontal = 9.dp, vertical = 6.dp)
                 ) {
                     Text(
                         "槽${i + 1}",
                         fontSize = 12.sp,
-                        color = if (i == presetSlot) Color(0xFFFFA08A) else Color(0xFF9AA2B0),
+                        color = if (i == presetSlot) Ui.accentHover else Ui.textSecondary,
                         fontFamily = cnFont
                     )
                 }
@@ -3952,14 +4233,20 @@ private fun V9PresetRow(presetSlot: Int, onLoad: (Int) -> Unit, onSave: () -> Un
 @Composable
 private fun V9Preview(
     modifier: Modifier,
-    grayScreen: Boolean,
-    startDuration: Float,
-    endDuration: Float,
-    ballColor: Long,
+    state: V9Holder,
     onStageBounds: (Rect) -> Unit
 ) {
+    // Read here rather than in the composition root: only this panel follows the timestop look.
+    val grayScreen = state.grayScreen
+    val startDuration = state.startDuration
+    val endDuration = state.endDuration
+    val ballColor: Long = if (state.ballColorCustom) {
+        state.customColor.toLong() and 0xFFFFFFFFL
+    } else {
+        ballColors[state.ballColor]
+    }
     Column(modifier.padding(12.dp)) {
-        Text("预览", fontSize = 13.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont)
+        Text("预览", fontSize = 13.sp, color = Ui.textPrimary, fontFamily = cnFont)
         Spacer(Modifier.height(8.dp))
         Box(
             Modifier.fillMaxWidth().weight(1f)
@@ -3974,8 +4261,8 @@ private fun V9Preview(
                         )
                     )
                 }
-                .background(Brush.verticalGradient(listOf(Color(0xFF0D1016), Color(0xFF07090D))), RoundedCornerShape(16.dp))
-                .border(1.dp, Color(0x1FE9ECF2), RoundedCornerShape(16.dp)),
+                .background(Brush.verticalGradient(listOf(Ui.surface1, Ui.surface0)), RoundedCornerShape(16.dp))
+                .border(1.dp, Ui.hairlineSoft, RoundedCornerShape(16.dp)),
             contentAlignment = Alignment.Center
         ) {
             PreviewGlow(ballColor)
@@ -3991,20 +4278,20 @@ private fun V9Preview(
             Row(Modifier.fillMaxSize()) {
                 Box(
                     Modifier.weight(0.30f).fillMaxHeight()
-                        .background(Brush.horizontalGradient(listOf(Color(0xFFFF8A6E), Color(0xFFE86848))))
+                        .background(Brush.horizontalGradient(listOf(Ui.accentBright, Ui.accentPressed)))
                 )
-                Box(Modifier.weight(0.48f).fillMaxHeight().background(Color(0xFF242A33)))
+                Box(Modifier.weight(0.48f).fillMaxHeight().background(Ui.surface4))
                 Box(
                     Modifier.weight(0.22f).fillMaxHeight()
-                        .background(Brush.horizontalGradient(listOf(Color(0xFFE86848), Color(0xFFFF8A6E))))
+                        .background(Brush.horizontalGradient(listOf(Ui.accentPressed, Ui.accentBright)))
                 )
             }
         }
         Spacer(Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth()) {
-            ValueCell(String.format(java.util.Locale.ROOT, "%.1fs", startDuration), Color(0xFFD7DCE5))
-            ValueCell("持续", Color(0xFF9AA2B0))
-            ValueCell(String.format(java.util.Locale.ROOT, "%.1fs", endDuration), Color(0xFFD7DCE5))
+            ValueCell(String.format(java.util.Locale.ROOT, "%.1fs", startDuration), Ui.textBody)
+            ValueCell("持续", Ui.textSecondary)
+            ValueCell(String.format(java.util.Locale.ROOT, "%.1fs", endDuration), Ui.textBody)
         }
     }
 }
@@ -4012,7 +4299,7 @@ private fun V9Preview(
 @Composable
 private fun RowScope.PhaseLabel(text: String) {
     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-        Text(text, fontSize = 10.sp, color = Color(0xFF9AA2B0), fontFamily = cnFont, maxLines = 1)
+        Text(text, fontSize = 10.sp, color = Ui.textSecondary, fontFamily = cnFont, maxLines = 1)
     }
 }
 
@@ -4028,7 +4315,7 @@ private fun PreviewGlow(ballColor: Long) {
     Canvas(Modifier.fillMaxSize().padding(12.dp)) {
         val accent = Color(ballColor)
         drawCircle(
-            Brush.radialGradient(listOf(accent.copy(alpha = 0.26f), Color(0x00FF7A5C))),
+            Brush.radialGradient(listOf(accent.copy(alpha = 0.26f), Ui.accent.copy(alpha = 0f))),
             radius = size.minDimension * 0.45f,
             center = center
         )
@@ -4039,14 +4326,14 @@ private fun PreviewGlow(ballColor: Long) {
 private fun V9Footer(quote: String, onReset: () -> Unit, onCancel: () -> Unit, onSave: () -> Unit) {
     Box(
         Modifier.fillMaxWidth().height(66.dp)
-            .background(Brush.verticalGradient(listOf(Color(0xFF101319), Color(0xFF0D0F14))))
-            .drawBehind { drawLine(Color(0x24E9ECF2), Offset(0f, 0f), Offset(size.width, 0f), 1f) }
+            .background(Brush.verticalGradient(listOf(Ui.surface1, Ui.surface1)))
+            .drawBehind { drawLine(Ui.hairline, Offset(0f, 0f), Offset(size.width, 0f), 1f) }
     ) {
         Row(
             Modifier.align(Alignment.CenterStart).padding(start = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(quote, fontSize = 12.sp, color = Color(0xFFD7DCE5), fontFamily = cnFont, maxLines = 1)
+            Text(quote, fontSize = 12.sp, color = Ui.textBody, fontFamily = cnFont, maxLines = 1)
         }
         Row(
             Modifier.align(Alignment.Center),
@@ -4054,30 +4341,30 @@ private fun V9Footer(quote: String, onReset: () -> Unit, onCancel: () -> Unit, o
         ) {
             Box(
                 Modifier.width(72.dp).height(2.dp).background(
-                    Brush.horizontalGradient(listOf(Color.Transparent, Color(0x0DFFFFFF), Color(0x26FF7A5C)))
+                    Brush.horizontalGradient(listOf(Color.Transparent, Ui.overlayFade, Ui.accentTint))
                 )
             )
             Spacer(Modifier.width(12.dp))
             Row(
                 Modifier.height(36.dp).clip(RoundedCornerShape(14.dp))
-                    .background(Brush.verticalGradient(listOf(Color(0xFF161A22), Color(0xFF101319))))
-                    .border(1.dp, Color(0x24E9ECF2), RoundedCornerShape(14.dp))
+                    .background(Brush.verticalGradient(listOf(Ui.surface3, Ui.surface1)))
+                    .border(1.dp, Ui.hairline, RoundedCornerShape(14.dp))
                     .drawBehind {
-                        drawLine(Color(0x24FFFFFF), Offset(8f, 3f), Offset(size.width - 8f, 3f), 1f)
+                        drawLine(Ui.innerLine, Offset(8f, 3f), Offset(size.width - 8f, 3f), 1f)
                     }
                     .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(Modifier.width(9.dp).height(9.dp).rotate(45f).background(Color(0xFFFF7A5C), RoundedCornerShape(2.dp)))
+                Box(Modifier.width(9.dp).height(9.dp).rotate(45f).background(Ui.accent, RoundedCornerShape(2.dp)))
                 Spacer(Modifier.width(8.dp))
-                Text("星渊", fontSize = 12.sp, color = Color(0xFFD7DCE5), fontFamily = cnFont)
+                Text("星渊", fontSize = 12.sp, color = Ui.textBody, fontFamily = cnFont)
                 Spacer(Modifier.width(6.dp))
-                Text("THESEUS", fontSize = 11.sp, color = Color(0xFF646D7B), fontFamily = cnFont)
+                Text("THESEUS", fontSize = 11.sp, color = Ui.textTertiary, fontFamily = cnFont)
             }
             Spacer(Modifier.width(12.dp))
             Box(
                 Modifier.width(72.dp).height(2.dp).background(
-                    Brush.horizontalGradient(listOf(Color(0x26FF7A5C), Color(0x0DFFFFFF), Color.Transparent))
+                    Brush.horizontalGradient(listOf(Ui.accentTint, Ui.overlayFade, Color.Transparent))
                 )
             )
         }
@@ -4094,67 +4381,113 @@ private fun V9Footer(quote: String, onReset: () -> Unit, onCancel: () -> Unit, o
     }
 }
 
+/**
+ * ESC used to drop the screen and every un-saved edit with it. This asks instead: a modal scrim over
+ * the window, primary action on the right, and the card is elevated above the 20dp window radius.
+ */
+@Composable
+private fun V9CloseConfirmDialog(
+    onSaveClose: () -> Unit,
+    onDiscardClose: () -> Unit,
+    onKeepEditing: () -> Unit
+) {
+    Box(
+        Modifier.fillMaxSize().background(Ui.scrim),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier.width(320.dp)
+                .shadow(20.dp, RoundedCornerShape(16.dp), ambientColor = Ui.shadowStrong, spotColor = Ui.shadowStrong)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Ui.surface2)
+                .border(1.dp, Ui.hairlineStrong, RoundedCornerShape(16.dp))
+                .padding(20.dp)
+        ) {
+            Text("有未保存的修改", fontSize = 14.sp, color = Ui.textPrimary, fontWeight = FontWeight.Bold, fontFamily = cnFont)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "关闭后这些改动会还原到上次保存的状态。",
+                fontSize = 12.sp,
+                color = Ui.textBody,
+                fontFamily = cnFont
+            )
+            Spacer(Modifier.height(18.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                V9PillButton("继续编辑", primary = false, onClick = onKeepEditing)
+                Spacer(Modifier.width(8.dp))
+                V9PillButton("放弃修改", primary = false, onClick = onDiscardClose)
+                Spacer(Modifier.width(8.dp))
+                V9PillButton("保存并关闭", primary = true, onClick = onSaveClose)
+            }
+        }
+    }
+}
+
 @Composable
 private fun V9PillButton(label: String, primary: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    val pressed = isPressed(interaction)
     Box(
         Modifier
             .clip(RoundedCornerShape(18.dp))
             .background(
                 when {
-                    primary && hovered -> Color(0xFFFFA08A)
-                    primary -> Color(0xFFFF7A5C)
-                    hovered -> Color(0xFF2A2F38)
-                    else -> Color(0xFF20242C)
+                    primary && pressed -> Ui.accentPressed
+                    primary && hovered -> Ui.accentHover
+                    primary -> Ui.accent
+                    pressed -> Ui.surfaceActive
+                    hovered -> Ui.surfaceHover
+                    else -> Ui.surfaceActive
                 }
             )
             .hoverable(interaction)
+            .handCursor()
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .drawBehind {
                 if (primary) {
-                    drawLine(Color(0x2EFFFFFF), Offset(6f, 4f), Offset(size.width - 6f, 4f), 1f)
+                    drawLine(Ui.innerHighlight, Offset(6f, 4f), Offset(size.width - 6f, 4f), 1f)
                 }
             }
             .padding(horizontal = 13.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, fontSize = 12.sp, color = if (primary) Color(0xFF1B100C) else Color(0xFF9AA2B0), fontFamily = cnFont)
+        Text(label, fontSize = 12.sp, color = if (primary) Ui.textOnAccent else Ui.textSecondary, fontFamily = cnFont)
     }
 }
 
 @Composable
 private fun V9RewindPanel(
     modifier: Modifier,
-    state: V9State,
+    state: V9Holder,
     onToggle: (String) -> Unit,
     onSegment: (String, Int) -> Unit,
     onSlider: (String, Float) -> Unit,
     onReset: (String) -> Unit
 ) {
     Column(
-        modifier.background(Brush.verticalGradient(listOf(Color(0xFF13161D), Color(0xFF0F1217)))).drawBehind {
-            drawLine(Color(0x24E9ECF2), Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
-        }.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier.background(Brush.verticalGradient(listOf(Ui.surface2, Ui.surface1))).drawBehind {
+            drawLine(Ui.hairline, Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
+        }.panelScroll("回溯").padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text("回溯设置", fontSize = 14.sp, color = Color(0xFFF2F4F8), fontFamily = cnFont)
-        Text("跟随这把神剑保存", fontSize = 11.sp, color = Color(0xFF646D7B), fontFamily = cnFont)
+        Text("回溯设置", fontSize = 14.sp, color = Ui.textPrimary, fontFamily = cnFont)
+        Text("跟随这把神剑保存", fontSize = 11.sp, color = Ui.textTertiary, fontFamily = cnFont)
 
         V9SwitchRow("回溯开关", "启用时间回溯能力", state.rewindEnabled) { onToggle("rewindEnabled") }
         V9SwitchRow("死亡回溯", "死亡时自动回溯", state.rewindDeathEnabled) { onToggle("rewindDeathEnabled") }
 
-        V9SliderRow("回溯窗口", "回退到多少秒前", state.rewindWindowSeconds.toFloat(), 1f, 60f, { "${it.toInt()}s" }) { onSlider("rewindWindowSeconds", it) }
-        V9SliderRow("主动冷却", "主动回溯冷却秒数", state.rewindCooldownTicks / 20f, 0f, 300f, { String.format("%.1fs", it) }) { onSlider("rewindCooldownTicks", it * 20f) }
-        V9SliderRow("死亡冷却", "死亡回溯冷却秒数", state.rewindDeathCooldownTicks / 20f, 0f, 300f, { String.format("%.1fs", it) }) { onSlider("rewindDeathCooldownTicks", it * 20f) }
-        V9SliderRow("连续回溯上限", "0 表示直到窗口开头", state.rewindDeathMaxRetries.toFloat(), 0f, 10f, { it.toInt().toString() }) { onSlider("rewindDeathMaxRetries", it) }
+        V9SliderRow("回溯窗口", "回退到多少秒前", { state.rewindWindowSeconds.toFloat() }, 1f, 60f, { "${it.toInt()}s" }) { onSlider("rewindWindowSeconds", it) }
+        V9SliderRow("主动冷却", "主动回溯冷却秒数", { state.rewindCooldownTicks / 20f }, 0f, 300f, { String.format("%.1fs", it) }) { onSlider("rewindCooldownTicks", it * 20f) }
+        V9SliderRow("死亡冷却", "死亡回溯冷却秒数", { state.rewindDeathCooldownTicks / 20f }, 0f, 300f, { String.format("%.1fs", it) }) { onSlider("rewindDeathCooldownTicks", it * 20f) }
+        V9SliderRow("连续回溯上限", "0 表示直到窗口开头", { state.rewindDeathMaxRetries.toFloat() }, 0f, 10f, { it.toInt().toString() }) { onSlider("rewindDeathMaxRetries", it) }
 
         V9SegmentRow("范围模式", "全维度或当前维度", listOf("全维度", "当前维度"), state.rewindScopeMode) { onSegment("rewindScopeMode", it) }
         V9SegmentRow("区块模式", "全区块或半径", listOf("全区块", "半径"), state.rewindScope) { onSegment("rewindScope", it) }
-        V9SliderRow("半径", "半径模式的半径", state.rewindRadius, 8f, 256f, { "${it.toInt()} 格" }) { onSlider("rewindRadius", it) }
+        V9SliderRow("半径", "半径模式的半径", { state.rewindRadius }, 8f, 256f, { "${it.toInt()} 格" }) { onSlider("rewindRadius", it) }
 
         V9SegmentRow("还原方式", "渐进或瞬间", listOf("渐进", "瞬间"), state.rewindPlaybackMode) { onSegment("rewindPlaybackMode", it) }
-        V9SliderRow("播放时长", "渐进还原播放秒数", state.rewindPlaybackSeconds, 0.5f, 5f, { String.format("%.1fs", it) }) { onSlider("rewindPlaybackSeconds", it) }
+        V9SliderRow("播放时长", "渐进还原播放秒数", { state.rewindPlaybackSeconds }, 0.5f, 5f, { String.format("%.1fs", it) }) { onSlider("rewindPlaybackSeconds", it) }
         V9SegmentRow("还原顺序", "先方块或先实体", listOf("方块→实体→世界", "实体→方块"), state.rewindRestoreOrder) { onSegment("rewindRestoreOrder", it) }
         V9SegmentRow("镜头模式", "跟随或自由飞行", listOf("跟随角色", "自由飞行"), state.rewindCameraMode) { onSegment("rewindCameraMode", it) }
         V9SwitchRow("自由镜头回位置", "B 模式结束回到原位置", state.rewindFreeCamRestorePosition) { onToggle("rewindFreeCamRestorePosition") }
@@ -4181,7 +4514,7 @@ private fun V9RewindPanel(
         V9SwitchRow("记分板", "恢复记分板", state.rewindScoreboard) { onToggle("rewindScoreboard") }
         V9SwitchRow("世界边界", "恢复世界边界", state.rewindWorldBorder) { onToggle("rewindWorldBorder") }
 
-        Text("恢复默认", fontSize = 12.sp, color = Color(0xFFFFA08A), fontFamily = cnFont,
+        Text("恢复默认", fontSize = 12.sp, color = Ui.accentHover, fontFamily = cnFont,
             modifier = Modifier.align(Alignment.End).clickable { onReset("回溯") }.padding(8.dp))
     }
 }

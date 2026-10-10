@@ -178,6 +178,21 @@ dependencies {
         exclude group: "org.embeddedt"
         exclude group: "maven.modrinth"
     }
+    // 调用 Photon 的配置类时 javac 要读它们的父接口（ldlib 的 ITagSerializable/IConfigurable/…），
+    // 只给编译期：运行期那份 ldlib 由 photon 自己嵌套提供，不进 jarJar、不改已验证的分发形态。
+    compileOnly(fg.deobf("com.lowdragmc.ldlib:ldlib-forge-1.20.1:1.0.42")) {
+        exclude group: "appeng"
+        exclude group: "dev.latvian.mods"
+        exclude group: "mezz.jei"
+    }
+}
+
+// FG 的 DeobfuscatingRepo 用 __obfuscated 配置自行解析被 deobf 的依赖，声明上的 exclude 传不进去；
+// LDLib 的 pom 把 AE2/KubeJS/JEI 声明成 runtime 依赖，任何仓库都取不到，只能在该配置层面排掉。
+configurations.matching { it.name == '__obfuscated' }.configureEach {
+    exclude group: 'appeng'
+    exclude group: 'dev.latvian.mods'
+    exclude group: 'mezz.jei'
 }
 
 tasks.named('jar', Jar).configure {
