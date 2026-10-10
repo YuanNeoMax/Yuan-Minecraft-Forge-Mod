@@ -157,6 +157,13 @@ public final class YuanDomainCheck {
                 && render.contains("private static VertexBuffer floorBuffer()")
                 : "the scratch builder and the GPU buffer must be created lazily from the draw path, "
                         + "which is the render thread";
+        // The empty-mesh path must still call end(): the builder throws "Already building!" on the
+        // next begin() otherwise. The result is null-checked because BufferBuilder offers two end
+        // variants and only one of them is guaranteed non-null; the check costs nothing and keeps
+        // the path correct whichever variant the call resolves to.
+        assert render.contains("RenderedBuffer empty") && render.contains("if (empty != null)")
+                : "the empty-mesh path must call end() to clear the building state, and must not "
+                        + "dereference the result without a null check";
 
         // ---- shader wiring ------------------------------------------------------
         assert shaders.contains("onApply")

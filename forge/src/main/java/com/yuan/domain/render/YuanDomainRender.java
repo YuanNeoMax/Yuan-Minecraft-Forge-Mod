@@ -2,6 +2,7 @@ package com.yuan.domain.render;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferBuilder.RenderedBuffer;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexBuffer;
@@ -174,8 +175,13 @@ public final class YuanDomainRender {
                 camera.x, camera.y, camera.z, cx, cz, radius);
 
         if (quads == 0) {
-            // Nothing to draw: end the build so the builder is not left mid-mesh for the next frame.
-            bb.end().release();
+            // Nothing to draw. end() must still be called to leave the builder out of its building
+            // state -- the next begin() throws "Already building!" otherwise -- but it returns null
+            // when no vertex was written, so the result cannot be dereferenced.
+            RenderedBuffer empty = bb.end();
+            if (empty != null) {
+                empty.release();
+            }
             return 0;
         }
 
