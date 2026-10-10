@@ -23,9 +23,22 @@ import net.minecraftforge.fml.common.Mod;
 public final class YuanSpaceSlashRender {
     private static final List<YuanSpaceSlashEffect> effects = new ArrayList<>();
     /**
-     * Temporary while the Photon streak is being tuned against its reference: the legacy slash visual
-     * (entity path under Iris/Oculus, plus the fallback list) stays compiled but is not played. Flip
-     * back to true to restore it.
+     * Whether the legacy mesh slash (entity path under Iris/Oculus, plus the fallback effect list)
+     * is drawn. Currently off: since 2026-10-04 the space slash plays through
+     * {@link YuanPhotonSlashBridge} instead, and the user asked for the photon streak only.
+     *
+     * <p>The legacy path is kept compiled and wired on purpose — it is the only slash visual proven
+     * to work <em>inside a shader pack</em>, whereas the photon streak's behaviour under Iris/Oculus
+     * has not been verified. Flip this to {@code true} to restore it when:
+     * <ul>
+     *   <li>the photon streak misbehaves or disappears while a shader pack is active, or</li>
+     *   <li>the photon route is abandoned and the mesh slash is wanted back.</li>
+     * </ul>
+     *
+     * <p>Everything the legacy path needs is still live: the entity type and its renderer stay
+     * registered in {@code YuanClient}, and {@link YuanSpaceSlashEffect}'s static helpers are shared
+     * with the photon bridge. {@code YuanSpaceSlashCheck} asserts those wiring points, so deleting
+     * any of them will fail the build rather than silently break the fallback.
      */
     private static final boolean LEGACY_SLASH_VISIBLE = false;
     private static YuanRenderStateSnapshot capturedState;
