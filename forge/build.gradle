@@ -219,6 +219,7 @@ def javaCheckClasses = [
     'com.yuan.YuanTimeStopCheck',
     'com.yuan.YuanSpaceSlashCheck',
     'com.yuan.YuanTimeRewindCheck',
+    'com.yuan.YuanGodSwordConfigCheck',
 ]
 
 javaCheckClasses.eachWithIndex { checkEntry, index ->
