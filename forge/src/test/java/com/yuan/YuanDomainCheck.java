@@ -39,6 +39,22 @@ public final class YuanDomainCheck {
                 "src/main/resources/assets/yuan/shaders/core/domain_starfield.fsh"));
         String json = Files.readString(Path.of(
                 "src/main/resources/assets/yuan/shaders/core/domain_starfield.json"));
+        String sections = Files.readString(Path.of(
+                "src/main/kotlin/com/yuan/client/gui/V9Sections.kt"));
+        String chrome = Files.readString(Path.of(
+                "src/main/kotlin/com/yuan/client/gui/V9Chrome.kt"));
+
+        // ---- the domain must be reachable from the G panel -----------------------
+        // It was originally nested under the time-stop page's "领域" sub-tab, which put a
+        // separate feature behind an unrelated one. It is a top-level entry now.
+        assert chrome.contains("\"领域\"") && chrome.contains("listOf(\"时停\", \"领域\"")
+                : "the domain must be a top-level sidebar entry in the G panel";
+        assert sections.contains("\"领域\" to setOf(\"领域\")")
+                : "the domain needs its own nav section";
+        assert !sections.contains("\"时停\" to setOf(\"基础\", \"动画\", \"画面\", \"音效\", \"光球\", \"时长\", \"冻结\", \"领域\", \"预设\")")
+                : "the domain section must not also be listed under the time-stop page";
+        assert !sections.contains("listOf(\"基础\", \"效果\", \"音效\", \"冻结\", \"领域\", \"预设\")")
+                : "the domain must not remain a time-stop sub-tab";
 
         // ---- the star-field flag must reach other clients ------------------------
         // The toggle lives on the holder's sword and a client cannot read another player's sword, so
@@ -63,6 +79,13 @@ public final class YuanDomainCheck {
                         + "inconsistent code path";
         assert mesh.contains("YuanDomainTerrain.heightAt")
                 : "the mesh must take vertex heights from the terrain sampler";
+        // The floor must sit ABOVE the sampled surface. getHeight returns the Y of the first air
+        // block, so a floor at or below it is buried in the ground and LEQUAL depth testing hides it
+        // entirely -- which is exactly what shipped in the first attempt.
+        assert mesh.contains("+ LIFT") && !mesh.contains("- 0.02f")
+                : "the floor must be lifted above the terrain, not sunk into it";
+        assert mesh.contains("LIFT = 0.05f")
+                : "the lift constant must stay positive";
 
         // ---- render-side conventions --------------------------------------------
         assert render.contains("RenderLevelStageEvent") && render.contains("AFTER_PARTICLES")

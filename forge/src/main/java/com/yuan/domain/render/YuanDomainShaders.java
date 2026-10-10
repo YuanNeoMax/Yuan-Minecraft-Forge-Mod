@@ -27,6 +27,9 @@ import java.io.IOException;
 @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public final class YuanDomainShaders {
 
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger("YuanDomainShaders");
+
     public static CCShaderInstance starfieldShader;
 
     private static CCUniform uTime;
@@ -74,6 +77,10 @@ public final class YuanDomainShaders {
                     uColorStar = starfieldShader.getUniform("domainColorStar");
                     uColorCore = starfieldShader.getUniform("domainColorCore");
                     starfieldShader.onApply(YuanDomainShaders::pushUniforms);
+                    // Confirms the shader compiled. A GLSL error here fails at runtime, not at
+                    // build time, so this line is the difference between a silent no-show and a
+                    // diagnosable one.
+                    LOGGER.info("domain starfield shader registered");
                 });
     }
 

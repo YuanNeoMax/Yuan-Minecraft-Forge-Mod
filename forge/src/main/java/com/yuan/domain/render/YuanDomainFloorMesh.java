@@ -35,6 +35,15 @@ public final class YuanDomainFloorMesh {
     /** Vertices per quad: two triangles, six vertices. */
     private static final int VERTS_PER_QUAD = 6;
 
+    /**
+     * Height above the sampled terrain surface, in blocks.
+     *
+     * <p>Must be positive. {@code getHeight} returns the Y of the first air block, so the terrain's
+     * top face sits at that Y; a floor at or below it is buried in the ground and the depth test
+     * hides it. 0.05 is enough to clear z-fighting without looking like it floats.
+     */
+    private static final float LIFT = 0.05f;
+
     private YuanDomainFloorMesh() {
     }
 
@@ -116,12 +125,14 @@ public final class YuanDomainFloorMesh {
                 float pz0 = (float) (centerZ + localZ0 - camZ);
                 float pz1 = (float) (centerZ + localZ1 - camZ);
 
-                // Sink the surface a hair into the ground so it reads as replacing the terrain
-                // rather than hovering just above it.
-                float py00 = (float) (y00 - camY) - 0.02f;
-                float py10 = (float) (y10 - camY) - 0.02f;
-                float py01 = (float) (y01 - camY) - 0.02f;
-                float py11 = (float) (y11 - camY) - 0.02f;
+                // Lift the surface slightly ABOVE the sampled terrain. getHeight returns the Y of the
+                // first air block, so the ground's top face is at that Y; placing the floor at or
+                // below it puts the whole surface inside the ground, where LEQUAL depth testing hides
+                // it completely. The small positive offset also avoids z-fighting with the block top.
+                float py00 = (float) (y00 - camY) + LIFT;
+                float py10 = (float) (y10 - camY) + LIFT;
+                float py01 = (float) (y01 - camY) + LIFT;
+                float py11 = (float) (y11 - camY) + LIFT;
 
                 // UV0 = offset from the domain centre, in blocks.
                 float u0 = (float) localX0;

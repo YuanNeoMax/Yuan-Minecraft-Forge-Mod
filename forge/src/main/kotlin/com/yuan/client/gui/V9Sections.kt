@@ -118,7 +118,8 @@ internal val v9Sections = listOf(
 
 
 internal val navSections = mapOf(
-    "时停" to setOf("基础", "动画", "画面", "音效", "光球", "时长", "冻结", "领域", "预设"),
+    "时停" to setOf("基础", "动画", "画面", "音效", "光球", "时长", "冻结", "预设"),
+    "领域" to setOf("领域"),
     "斩击" to setOf("斩击"),
     "武器渲染" to setOf("武器渲染"),
     "回溯" to setOf("回溯"),
@@ -126,7 +127,7 @@ internal val navSections = mapOf(
 )
 
 
-internal val timestopTabs = listOf("基础", "效果", "音效", "冻结", "领域", "预设")
+internal val timestopTabs = listOf("基础", "效果", "音效", "冻结", "预设")
 
 
 internal val timestopTabSections = mapOf(
@@ -134,7 +135,6 @@ internal val timestopTabSections = mapOf(
     "效果" to setOf("动画", "画面", "光球"),
     "音效" to setOf("音效"),
     "冻结" to setOf("冻结"),
-    "领域" to setOf("领域"),
     "预设" to setOf("预设")
 )
 

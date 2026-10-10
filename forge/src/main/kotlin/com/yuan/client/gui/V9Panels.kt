@@ -35,6 +35,7 @@ internal fun V9TimestopHint(selectedNav: String, state: V9Holder) {
     val triggerMode = state.triggerMode
     Text(
         when {
+            selectedNav == "领域" -> "按 V 展开 / 收束领域"
             selectedNav != "时停" -> "设置跟随这把神剑保存"
             triggerMode == 1 -> "Shift + 右键触发"
             triggerMode == 2 -> "自定义键触发"

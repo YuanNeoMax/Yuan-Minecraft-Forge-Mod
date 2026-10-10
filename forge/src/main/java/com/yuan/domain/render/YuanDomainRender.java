@@ -43,6 +43,12 @@ public final class YuanDomainRender {
     /** Wall-clock of the previous frame, for converting frame deltas into ticks. */
     private static long lastFrameNanos = -1L;
 
+    /** Guards the one-shot "shader missing" warning so it is not logged every frame. */
+    private static boolean warnedShaderMissing;
+
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger("YuanDomainRender");
+
     private YuanDomainRender() {
     }
 
@@ -51,7 +57,18 @@ public final class YuanDomainRender {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_PARTICLES) {
             return;
         }
-        if (YuanDomainClient.isEmpty() || !YuanDomainShaders.ready()) {
+        if (YuanDomainClient.isEmpty()) {
+            return;
+        }
+        // Say so once, loudly. Without this the floor simply never appears and the log stays silent,
+        // which is indistinguishable from "the player never opened a domain" -- that silence is what
+        // made the first attempt's failure take a round trip to diagnose.
+        if (!YuanDomainShaders.ready()) {
+            if (!warnedShaderMissing) {
+                warnedShaderMissing = true;
+                LOGGER.warn("domain is active but the starfield shader is not registered; "
+                        + "the floor will not render. Check for a domain_starfield shader compile error.");
+            }
             return;
         }
         Minecraft mc = Minecraft.getInstance();

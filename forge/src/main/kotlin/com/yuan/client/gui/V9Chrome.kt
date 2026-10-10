@@ -278,7 +278,7 @@ internal fun V9LobeTabs(
 
 @Composable
 internal fun V9Sidebar(modifier: Modifier, selectedNav: String, onSelect: (String) -> Unit) {
-    val items = listOf("时停", "武器渲染", "斩击", "回溯", "设置")
+    val items = listOf("时停", "领域", "武器渲染", "斩击", "回溯", "设置")
     Column(
         modifier.background(Brush.verticalGradient(listOf(Ui.surface1, Ui.surface1))).drawBehind {
             drawLine(Ui.hairline, Offset(size.width - 1f, 0f), Offset(size.width - 1f, size.height), 1f)
