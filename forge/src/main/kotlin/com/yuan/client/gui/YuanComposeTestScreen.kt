@@ -640,6 +640,7 @@ internal fun ComposeTestContent(
                 "rewindWorldBorder" -> holder.rewindWorldBorder = !holder.rewindWorldBorder
                 "rewindFreeCamRestorePosition" -> holder.rewindFreeCamRestorePosition = !holder.rewindFreeCamRestorePosition
                 "rewindShowStats" -> holder.rewindShowStats = !holder.rewindShowStats
+                "domainStarfield" -> holder.domainStarfield = !holder.domainStarfield
                 else -> holder.showMessage = !holder.showMessage
             }
             markDirty()
@@ -1137,6 +1138,7 @@ internal fun ComposeTestContent(
             holder.uiSwitchTextOn = defaults.uiSwitchTextOn
             holder.uiSwitchTextOff = defaults.uiSwitchTextOff
             holder.domainRadius = defaults.domainRadius
+            holder.domainStarfield = defaults.domainStarfield
             markDirty()
         }
 

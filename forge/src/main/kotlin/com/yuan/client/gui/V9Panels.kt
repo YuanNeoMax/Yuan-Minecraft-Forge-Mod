@@ -71,7 +71,8 @@ internal fun V9TimestopRow(
         switchValue(
             row.id, state.enabled, state.invulnerable, state.grayScreen, state.grayAnimate,
             state.soundEnabled, state.freezeSelf, state.freezeEntities,
-            state.freezeBlocks, state.freezeFluids, state.freezeBossAI, state.showMessage
+            state.freezeBlocks, state.freezeFluids, state.freezeBossAI, state.showMessage,
+            state.domainStarfield
         )
     ) {
         onToggle(row.id)

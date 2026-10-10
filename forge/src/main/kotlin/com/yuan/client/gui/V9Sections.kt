@@ -109,6 +109,7 @@ internal val v9Sections = listOf(
     )),
     V9Section("领域", "领域展开的范围。", listOf(
         V9Row("domainRadius", "领域半径", "同时决定地面网格截止、术式架尺寸与滤镜范围", 2, "领域", "领域展开的范围。"),
+        V9Row("domainStarfield", "星渊地面", "地形表面被星海替换；关闭后领域只剩其它层", 0, "领域", "领域展开的范围。"),
     )),
     V9Section("预设", "快速保存与载入整套配置。", listOf(
         V9Row("preset", "配置预设", "槽 1-3 保存/载入", 4, "预设", "快速保存与载入整套配置。")

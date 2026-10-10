@@ -82,7 +82,8 @@ internal fun switchValue(
     freezeBlocks: Boolean,
     freezeFluids: Boolean,
     freezeBossAI: Boolean,
-    showMessage: Boolean
+    showMessage: Boolean,
+    domainStarfield: Boolean
 ): Boolean = when (id) {
     "enabled" -> enabled
     "invulnerable" -> invulnerable
@@ -94,6 +95,7 @@ internal fun switchValue(
     "freezeBlocks" -> freezeBlocks
     "freezeFluids" -> freezeFluids
     "freezeBossAI" -> freezeBossAI
+    "domainStarfield" -> domainStarfield
     else -> showMessage
 }
 

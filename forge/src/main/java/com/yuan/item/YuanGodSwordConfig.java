@@ -193,6 +193,9 @@ public final class YuanGodSwordConfig {
     // 领域半径同时决定：地面网格的真实截止、术式架尺寸、后处理强度衰减范围
     public float domainRadius = 20f;
 
+    // 星渊地面：地形表面被星海替换。关闭时领域只剩其它层（天穹/术式架）。
+    public boolean domainStarfield = true;
+
     /**
      * Every declared instance field, in declaration order. Used by the three pure in-memory
      * mirrors below so none of them has to name all 166 fields by hand -- a hand-written list is
