@@ -375,7 +375,7 @@ public final class YuanTimeStopCheck {
                 && refmap.contains("playerTouch")
                 : "refmap must cover the new input/world-system freeze mixins";
 
-        String composeScreen = Files.readString(Path.of("src/main/kotlin/com/yuan/client/gui/YuanComposeTestScreen.kt"));
+        String composeScreen = ComposePackage.read();
         assert composeScreen.contains("navSections")
                 : "compose config screen must group settings by sidebar tabs";
         assert !composeScreen.contains("暂未开放")

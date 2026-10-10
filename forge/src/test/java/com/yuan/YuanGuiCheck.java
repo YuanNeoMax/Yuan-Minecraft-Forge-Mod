@@ -444,8 +444,9 @@ public final class YuanGuiCheck {
         assert !YuanConfigScreen.worldAdjustWidgetVisible(true, false, true);
         assert YuanConfigScreen.worldAdjustWidgetVisible(false, false, true);
 
-        String composeScreen = java.nio.file.Files.readString(java.nio.file.Path.of(
-                "src/main/kotlin/com/yuan/client/gui/YuanComposeTestScreen.kt"));
+        // The Compose screen is split across several files in this package; these assertions are
+        // about the UI as a whole, so they read the package rather than one path.
+        String composeScreen = ComposePackage.read();
         assert !composeScreen.contains("id.startsWith(\"voronoiColor\") && id.length")
                 : "length-gated voronoi dispatch silently drops the 14-character voronoiColor0R ids";
         assert composeScreen.contains("if (id.startsWith(\"voronoiColor\")) {")

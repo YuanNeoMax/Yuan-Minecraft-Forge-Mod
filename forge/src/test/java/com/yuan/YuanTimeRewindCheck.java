@@ -44,7 +44,7 @@ public final class YuanTimeRewindCheck {
         assert keyBindings.contains("new YuanTimeRewindCancelPacket()")
                 : "rewind hotkey must cancel an active playback";
 
-        String composeScreen = Files.readString(Path.of("src/main/kotlin/com/yuan/client/gui/YuanComposeTestScreen.kt"));
+        String composeScreen = ComposePackage.read();
         assert composeScreen.contains("V9RewindPanel") : "rewind compose tab must define V9RewindPanel";
 
         String mixins = Files.readString(Path.of("src/main/resources/yuan.mixins.json"));

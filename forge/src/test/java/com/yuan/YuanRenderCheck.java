@@ -22,7 +22,7 @@ public final class YuanRenderCheck {
         String cosmicShaders = read("src/main/java/com/yuan/client/cosmic/YuanCosmicShaders.java");
         String cosmicBaked = read("src/main/java/com/yuan/client/cosmic/YuanCosmicBakedModel.java");
         String godSwordConfig = read("src/main/java/com/yuan/item/YuanGodSwordConfig.java");
-        String compose = read("src/main/kotlin/com/yuan/client/gui/YuanComposeTestScreen.kt");
+        String compose = ComposePackage.read();
         String tunnelFragment = read("src/main/resources/assets/yuan/shaders/core/tunnel_item.fsh");
         String voronoiFragment = read("src/main/resources/assets/yuan/shaders/core/voronoi_item.fsh");
         String ringParticle = read("src/main/resources/assets/yuan/particles/gilded_ring.json");
