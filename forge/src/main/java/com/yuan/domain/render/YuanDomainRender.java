@@ -270,17 +270,19 @@ public final class YuanDomainRender {
         }
     }
 
-    /** Clears animation state and GPU buffers; called on logout so a new session starts closed. */
+    /**
+     * Clears animation state; called on logout so a new session starts closed.
+     *
+     * <p>The GPU buffer and the scratch builder are deliberately left alone. Neither holds any
+     * session state -- the mesh is rebuilt from scratch every frame -- so reusing them across a
+     * reconnect is correct, and it avoids both a GL delete off the render thread and a per-logout
+     * leak of buffer ids.
+     */
     public static void reset() {
         STRENGTH.clear();
         lastFrameNanos = -1L;
         warnedShaderMissing = false;
         YuanDomainShaders.resetClock();
-        if (floorBuffer != null) {
-            floorBuffer.close();
-            floorBuffer = null;
-        }
-        builder = null;
     }
 
     // ---------------------------------------------------------------- tracing

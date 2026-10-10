@@ -148,6 +148,15 @@ public final class YuanDomainCheck {
         assert render.contains("finally")
                 : "the restore must run even if the draw throws, or the frame is left in a broken "
                         + "blend/depth state";
+        // Both are created lazily from the render-side draw path. A VertexBuffer constructor issues
+        // GL calls and asserts it is on the render thread, so it must not be created anywhere else.
+        assert !render.contains("close()")
+                : "reset() must not close the GPU buffer: logout is a network-side event, and a "
+                        + "VertexBuffer close issues GL deletes that belong on the render thread";
+        assert render.contains("private static BufferBuilder builder()")
+                && render.contains("private static VertexBuffer floorBuffer()")
+                : "the scratch builder and the GPU buffer must be created lazily from the draw path, "
+                        + "which is the render thread";
 
         // ---- shader wiring ------------------------------------------------------
         assert shaders.contains("onApply")
