@@ -5,12 +5,10 @@ import com.yuan.Yuan;
 import com.yuan.client.gui.YuanComposeTestScreen;
 import com.yuan.client.gui.YuanConfigScreen;
 import com.yuan.domain.YuanDomainRequestPacket;
-import com.yuan.event.YuanSwordEvents;
 import com.yuan.item.YuanConfig;
 import com.yuan.item.YuanGodSwordConfig;
 import com.yuan.item.YuanGodSwordItem;
 import com.yuan.item.YuanSwordItem;
-import com.yuan.network.TimeStopPacket;
 import com.yuan.network.ConfigSyncPacket;
 import com.yuan.timerewind.YuanTimeRewindCancelPacket;
 import com.yuan.timerewind.YuanTimeRewindClient;
@@ -34,7 +32,6 @@ import org.lwjgl.glfw.GLFW;
 public class YuanKeyBindings {
     enum KeyRequest { NONE, CONFIG }
 
-    private static boolean timeStopPressed;
     public static final KeyMapping OPEN_CONFIG = new KeyMapping(
         "key.yuan.config", KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_G, "key.categories.yuan");
 
@@ -179,29 +176,6 @@ public class YuanKeyBindings {
                 }
                 return;
             }
-            if (event.getAction() != GLFW.GLFW_PRESS) return;
-            if (!isShift()) return;
-            if (!(stack.getItem() instanceof YuanSwordItem)) return;
-            if (!YuanConfig.get(stack, YuanConfig.K_TIME_STOP, true)) return;
-            if (YuanSwordEvents.isClientTimeStopped()) return;
-
-            event.setCanceled(true);
-            timeStopPressed = true;
-            Yuan.CHANNEL.sendToServer(new TimeStopPacket(true));
-        }
-    }
-
-    @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
-    public static class ReleaseHandler {
-        @SubscribeEvent
-        public static void onMouseRelease(InputEvent.MouseButton.Pre event) {
-            if (event.getButton() != GLFW.GLFW_MOUSE_BUTTON_RIGHT || event.getAction() != GLFW.GLFW_RELEASE) return;
-            if (!timeStopPressed && !YuanSwordEvents.isClientTimeStopped()) return;
-            Minecraft mc = Minecraft.getInstance();
-            if (mc.player == null) return;
-
-            timeStopPressed = false;
-            Yuan.CHANNEL.sendToServer(new TimeStopPacket(false));
         }
     }
 

@@ -7,8 +7,6 @@ import com.yuan.item.YuanSwordItem;
 import com.yuan.item.YuanWeaponBinding;
 import com.yuan.data.YuanBanData;
 import com.yuan.Yuan;
-import com.yuan.network.TimeStopStatePacket;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
@@ -39,10 +37,8 @@ import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.network.PacketDistributor;
 import net.minecraft.server.level.ServerPlayer;
 
-import java.util.UUID;
 import java.util.Optional;
 
 @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.FORGE)
@@ -53,73 +49,8 @@ public class YuanSwordEvents {
     private static final String YUAN_VOID_PHASE = "YuanVoidPhase";
     private static final ThreadLocal<Boolean> COUNTERING = ThreadLocal.withInitial(() -> false);
 
-    private static volatile boolean timeStopped;
-    private static volatile UUID timeWielder;
-    private static volatile boolean fullTimeStop;
-    private static volatile String timeDimension = "";
-    private static volatile double timeX;
-    private static volatile double timeY;
-    private static volatile double timeZ;
-    private static volatile double timeRange;
-
-    private static volatile boolean clientTimeStopped;
-    private static volatile UUID clientTimeWielder;
-    private static volatile boolean clientFullTimeStop;
-    private static volatile String clientTimeDimension = "";
-    private static volatile double clientTimeX;
-    private static volatile double clientTimeY;
-    private static volatile double clientTimeZ;
-    private static volatile double clientTimeRange;
-
-    public static synchronized boolean startTime(UUID playerId, boolean full, String dimension,
-                                                 double x, double y, double z, double range) {
-        if (timeStopped && !playerId.equals(timeWielder)) return false;
-        timeStopped = true;
-        timeWielder = playerId;
-        fullTimeStop = full;
-        timeDimension = dimension;
-        timeX = x;
-        timeY = y;
-        timeZ = z;
-        timeRange = Math.max(0, range);
-        return true;
-    }
-
-    public static synchronized boolean stopTime(UUID playerId) {
-        if (!timeStopped || !playerId.equals(timeWielder)) return false;
-        forceStopTime();
-        return true;
-    }
-
-    public static synchronized void forceStopTime() {
-        timeStopped = false;
-        timeWielder = null;
-        fullTimeStop = false;
-        timeDimension = "";
-        timeX = timeY = timeZ = timeRange = 0;
-    }
-
-    public static boolean isTimeStopped() { return timeStopped; }
-    public static UUID getTimeWielder() { return timeWielder; }
-    public static boolean isFullTimeStop() { return timeStopped && fullTimeStop; }
-    public static boolean isTimeWielder(UUID id) { return timeStopped && id != null && id.equals(timeWielder); }
-
-    public static boolean shouldTickVehicleChain(UUID entityId, UUID passengerId) {
-        return !timeStopped || isTimeWielder(entityId) || isTimeWielder(passengerId);
-    }
-
-    public static boolean isInsideLocalStop(String dimension, double x, double y, double z) {
-        if (!timeStopped || fullTimeStop || !timeDimension.equals(dimension)) return false;
-        return distanceSquared(timeX, timeY, timeZ, x, y, z) <= timeRange * timeRange;
-    }
-
-    public static boolean isEntityFrozen(Entity entity) {
-        if (!timeStopped || isTimeWielder(entity.getUUID())) return false;
-        return fullTimeStop || isInsideLocalStop(entity.level().dimension().location().toString(),
-                entity.getX(), entity.getY(), entity.getZ());
-    }
-
-    public static boolean shouldFreezeWorldSystems() { return timeStopped && fullTimeStop; }
+    /** Outcome of a void rescue attempt; used by the defense chain, not by time stop. */
+    public enum RescueResult { RESCUED, HOLD_RETRY, PHASE_HOLD }
 
     public static boolean shouldCounter(boolean enabled, boolean attackerHoldingYuan, boolean countering,
                                         boolean targetAllowed) {
@@ -139,53 +70,8 @@ public class YuanSwordEvents {
         return configured && authorized;
     }
 
-    public enum RescueResult { RESCUED, HOLD_RETRY, PHASE_HOLD }
-
     public static RescueResult rescueResult(boolean supportedDestination) {
         return supportedDestination ? RescueResult.RESCUED : RescueResult.HOLD_RETRY;
-    }
-
-    public static void applyClientTimeState(boolean enabled, UUID wielder, boolean full, String dimension,
-                                            double x, double y, double z, double range) {
-        clientTimeStopped = enabled;
-        clientTimeWielder = enabled ? wielder : null;
-        clientFullTimeStop = enabled && full;
-        clientTimeDimension = enabled ? dimension : "";
-        clientTimeX = x;
-        clientTimeY = y;
-        clientTimeZ = z;
-        clientTimeRange = enabled ? Math.max(0, range) : 0;
-    }
-
-    public static void clearClientTimeState() {
-        applyClientTimeState(false, null, false, "", 0, 0, 0, 0);
-    }
-
-    public static boolean isClientTimeStopped() { return clientTimeStopped; }
-    public static boolean isClientFullTimeStop() { return clientTimeStopped && clientFullTimeStop; }
-    public static boolean isClientWielder(UUID id) {
-        return clientTimeStopped && id != null && id.equals(clientTimeWielder);
-    }
-
-    public static boolean isClientEntityFrozen(UUID id, String dimension, double x, double y, double z) {
-        if (!clientTimeStopped || isClientWielder(id)) return false;
-        if (clientFullTimeStop) return true;
-        return clientTimeDimension.equals(dimension)
-                && distanceSquared(clientTimeX, clientTimeY, clientTimeZ, x, y, z)
-                <= clientTimeRange * clientTimeRange;
-    }
-
-    public static void syncTimeState(MinecraftServer server) {
-        if (server == null) return;
-        Yuan.CHANNEL.send(PacketDistributor.ALL.noArg(), new TimeStopStatePacket(timeStopped, timeWielder,
-                fullTimeStop, timeDimension, timeX, timeY, timeZ, timeRange));
-    }
-
-    private static double distanceSquared(double x1, double y1, double z1, double x2, double y2, double z2) {
-        double dx = x1 - x2;
-        double dy = y1 - y2;
-        double dz = z1 - z2;
-        return dx * dx + dy * dy + dz * dz;
     }
 
     @SubscribeEvent
@@ -195,20 +81,12 @@ public class YuanSwordEvents {
             YuanWeaponBinding.logout(player);
             YuanDefenseState.clear(player);
         }
-        if (isTimeWielder(event.getEntity().getUUID())) {
-            MinecraftServer server = event.getEntity().getServer();
-            forceStopTime();
-            syncTimeState(server);
-        }
     }
 
     @SubscribeEvent
     public static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             YuanWeaponBinding.login(player);
-            Yuan.CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new TimeStopStatePacket(
-                    timeStopped, timeWielder, fullTimeStop, timeDimension,
-                    timeX, timeY, timeZ, timeRange));
         }
     }
 
@@ -252,18 +130,11 @@ public class YuanSwordEvents {
         }
         if (event.getEntity() instanceof Player player) {
             revokeFlight(player);
-            if (isTimeWielder(player.getUUID())) {
-                MinecraftServer server = player.getServer();
-                forceStopTime();
-                syncTimeState(server);
-            }
         }
     }
 
     @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent event) {
-        forceStopTime();
-        clearClientTimeState();
         YuanDefenseState.clearAll();
         YuanWeaponBinding.clearAll();
         YuanBanData.clearSession();
@@ -342,17 +213,6 @@ public class YuanSwordEvents {
         if (!(event.getEntity() instanceof Player player)) return;
         if (player.level().isClientSide) return;
         if (player instanceof ServerPlayer serverPlayer) YuanWeaponBinding.tick(serverPlayer);
-        if (!player.level().isClientSide && isTimeWielder(player.getUUID())) {
-            ItemStack mainHand = player.getMainHandItem();
-            if (!(mainHand.getItem() instanceof YuanSwordItem)
-                    || !(player instanceof ServerPlayer serverPlayer)
-                    || !YuanWeaponBinding.canUseWeapon(serverPlayer, mainHand)
-                    || !YuanConfig.get(mainHand, YuanConfig.K_TIME_STOP, true)) {
-                MinecraftServer server = player.getServer();
-                forceStopTime();
-                syncTimeState(server);
-            }
-        }
         ItemStack cfg = configStack(player);
         Defense defense = resolveDefense(player);
         if (player instanceof ServerPlayer serverPlayer) repairDefense(serverPlayer, defense);

@@ -115,9 +115,6 @@ public final class YuanConfigCatalog {
             bool(YuanConfig.K_DROP_DAMAGE_PROTECTION, "绑定", "掉落武器防毁", true, "掉落虚渊免疫普通环境伤害。", "物品实体存在时。", "不阻止正常卸载。", "默认开启。", "掉落 防毁 damage"),
             bool(YuanConfig.K_DROP_CAN_DESPAWN, "绑定", "允许自然消失", false, "允许掉落虚渊自然消失。", "物品实体到期时。", "不影响区块卸载和停服。", "默认关闭。", "掉落 despawn"),
             bool(YuanConfig.K_DROP_VOID_RESCUE, "绑定", "掉落虚空救援", true, "掉落虚渊进入虚空时召回或移至安全位置。", "低于世界最低高度时。", "依赖绑定状态决定召回目标。", "默认开启。", "掉落 虚空 rescue"),
-            bool(YuanConfig.K_TIME_STOP, "时停", "时间停止", true, "允许使用 Shift+右键切换时停。", "Shift+右键。", "需要服务端支持。", "多人环境请谨慎使用。", "时停 shift 右键"),
-            bool(YuanConfig.K_TIME_FULL, "时停", "全系统冻结", true, "冻结整个维度的受支持系统。", "启用时停后生效。", "依赖时间停止。", "影响范围最大。", "全局 冻结"),
-            number(YuanConfig.K_TIME_RANGE, "时停", "冻结范围", 10, 100, 10, 100, "局部时停的半径。", "关闭全系统冻结后生效。", "数值越大影响实体越多。"),
             bool(YuanConfig.K_BAN_LIST, "清除", "永久禁止重生", true, "寂灭目标后阻止其再次生成。", "寂灭模式攻击。", "依赖服务端封禁表。", "会持续影响世界实体生成。", "仅对明确需要永久清除的目标使用。", "ban 封禁 重生 persistent ban"),
             bool(YuanConfig.K_BAN_PERSIST, "清除", "跨重启保存", true, "将封禁表写入世界存档。", "封禁目标后自动保存。", "依赖永久禁止重生。", "关闭后重启可能恢复。", "持久化 存档 persistent ban", true),
             bool(YuanConfig.K_BAN_MARK, "清除", "封禁标记", true, "记录封禁目标标记。", "永久清除时自动执行。", "依赖永久禁止重生。", "便于管理封禁列表。", "标记 ban"),
@@ -191,9 +188,6 @@ public final class YuanConfigCatalog {
                 && !key.equals(YuanConfig.K_DROP_CAN_DESPAWN)
                 && !key.equals(YuanConfig.K_DROP_VOID_RESCUE))
             return getInt(config, YuanConfig.K_BINDING_MODE, 1) > 0;
-        if (key.equals(YuanConfig.K_TIME_FULL)) return get(config, YuanConfig.K_TIME_STOP, true);
-        if (key.equals(YuanConfig.K_TIME_RANGE))
-            return get(config, YuanConfig.K_TIME_STOP, true) && !get(config, YuanConfig.K_TIME_FULL, true);
         if (key.equals(YuanConfig.K_BAN_PERSIST) || key.equals(YuanConfig.K_BAN_MARK))
             return get(config, YuanConfig.K_BAN_LIST, true);
         if (byKey(key) != null && byKey(key).category().equals("液态玻璃") && !key.equals(YuanConfig.K_GLASS_ENABLED))

@@ -6,8 +6,6 @@ import com.yuan.domain.YuanDomainStatePacket;
 import com.yuan.network.ConfigSyncPacket;
 import com.yuan.network.YuanGodSwordConfigPacket;
 import com.yuan.network.ModeSwitchMessage;
-import com.yuan.network.TimeStopPacket;
-import com.yuan.network.TimeStopStatePacket;
 import com.yuan.network.BanListRequestPacket;
 import com.yuan.network.BanListStatePacket;
 import com.yuan.network.BanRemovePacket;
@@ -118,18 +116,6 @@ public class Yuan {
                 ConfigSyncPacket::new,
                 ConfigSyncPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
-
-        CHANNEL.registerMessage(2, TimeStopPacket.class,
-                TimeStopPacket::encode,
-                TimeStopPacket::new,
-                TimeStopPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER));
-
-        CHANNEL.registerMessage(3, TimeStopStatePacket.class,
-                TimeStopStatePacket::encode,
-                TimeStopStatePacket::new,
-                TimeStopStatePacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
 
         CHANNEL.registerMessage(4, BanListRequestPacket.class,
                 BanListRequestPacket::encode, BanListRequestPacket::new, BanListRequestPacket::handle,

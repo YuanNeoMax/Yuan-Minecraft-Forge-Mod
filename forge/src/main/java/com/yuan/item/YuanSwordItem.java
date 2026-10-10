@@ -4,7 +4,6 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.yuan.client.particle.YuanParticleTypes;
 import com.yuan.client.render.YuanColorHelper;
-import com.yuan.event.YuanSwordEvents;
 import com.yuan.event.YuanDroppedWeaponProtection;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
@@ -262,7 +261,6 @@ public class YuanSwordItem extends SwordItem {
         if (level.isClientSide) return;
         if (!(player instanceof net.minecraft.server.level.ServerPlayer serverPlayer)
                 || !YuanWeaponBinding.canUseWeapon(serverPlayer, stack)) return;
-        if (YuanSwordEvents.isTimeStopped()) return;
         if (!YuanConfig.get(stack, YuanConfig.K_RIGHT_AOE, true)) return;
         if (!shouldPulse(chargeTicks(remaining))) return;
         int hit = attackLoadedEntities(level, player, stack, getMode(stack),
@@ -292,11 +290,6 @@ public class YuanSwordItem extends SwordItem {
         }
 
         if (!shouldReleaseCharged(releaseMode) || chargeTicks < FULL_CHARGE_TICKS) return;
-
-        if (YuanSwordEvents.stopTime(player.getUUID())) {
-            YuanSwordEvents.syncTimeState(player.getServer());
-            player.displayClientMessage(Component.literal("§a§l▶ 时间恢复流动"), true);
-        }
 
         if (!YuanConfig.get(stack, YuanConfig.K_WORLD_KILL, true)) return;
 

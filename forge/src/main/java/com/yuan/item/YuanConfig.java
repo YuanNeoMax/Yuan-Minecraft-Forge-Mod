@@ -20,6 +20,8 @@ public class YuanConfig {
     public static final String K_TORMENT_PCT = "tormentPct", K_RUIN_POWER = "ruinPower", K_RUIN_EXPLODE = "ruinExplode";
     public static final String K_OBLIVION_DROP = "oblivionDrop", K_OBLIVION_DEATH = "oblivionDeath";
     public static final String K_INVINCIBLE = "invincible", K_COUNTER = "counter", K_FLIGHT = "flight";
+    // Inert since the legacy timestop removal (2026-10-11): kept so old saves still parse and
+    // normalizeLegacyFloat keeps its migration behaviour. No longer shown in the config screen.
     public static final String K_TIME_STOP = "timeStop", K_TIME_FULL = "timeFull", K_TIME_RANGE = "timeRange";
     public static final String K_BAN_LIST = "banList", K_BAN_PERSIST = "banPersist", K_BAN_MARK = "banMark";
     public static final String K_REACH = "reach", K_SPEED = "speed", K_AOE_RANGE = "aoeRange";

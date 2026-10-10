@@ -274,31 +274,6 @@ public final class YuanSecurityCheck {
 
         UUID owner = UUID.randomUUID();
         UUID other = UUID.randomUUID();
-        YuanSwordEvents.forceStopTime();
-        assert YuanSwordEvents.startTime(owner, false, "minecraft:overworld", 10, 20, 30, 40);
-        assert YuanSwordEvents.isTimeStopped();
-        assert !YuanSwordEvents.isFullTimeStop();
-        assert YuanSwordEvents.isInsideLocalStop("minecraft:overworld", 10, 20, 69);
-        assert !YuanSwordEvents.isInsideLocalStop("minecraft:overworld", 10, 20, 71);
-        assert !YuanSwordEvents.isInsideLocalStop("minecraft:the_nether", 10, 20, 30);
-        assert !YuanSwordEvents.startTime(other, true, "minecraft:the_nether", 0, 0, 0, 100);
-        assert !YuanSwordEvents.stopTime(other);
-        assert YuanSwordEvents.stopTime(owner);
-        assert !YuanSwordEvents.isTimeStopped();
-        assert YuanSwordEvents.getTimeWielder() == null;
-
-        YuanSwordEvents.applyClientTimeState(true, owner, true, "minecraft:overworld", 1, 2, 3, 50);
-        assert YuanSwordEvents.isClientTimeStopped();
-        assert YuanSwordEvents.isClientFullTimeStop();
-        assert YuanSwordEvents.isClientWielder(owner);
-        YuanSwordEvents.clearClientTimeState();
-        assert !YuanSwordEvents.isClientTimeStopped();
-
-        assert YuanSwordEvents.startTime(owner, true, "minecraft:overworld", 0, 0, 0, 100);
-        assert YuanSwordEvents.shouldTickVehicleChain(owner, owner);
-        assert YuanSwordEvents.shouldTickVehicleChain(other, owner);
-        assert !YuanSwordEvents.shouldTickVehicleChain(other, other);
-        YuanSwordEvents.forceStopTime();
 
         assert YuanSwordEvents.shouldCounter(true, false, false, true);
         assert !YuanSwordEvents.shouldCounter(true, true, false, true);
