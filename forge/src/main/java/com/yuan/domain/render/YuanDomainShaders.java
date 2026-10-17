@@ -8,21 +8,23 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RegisterShadersEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 import org.joml.Vector4f;
 
 import java.io.IOException;
 
 /**
- * Owns the star-abyss floor shader and its uniforms.
+ * Owns the star-abyss post-process shader and its uniforms.
  *
  * <p>Uniforms are written from an {@code onApply} callback rather than once per frame: a
- * {@code ShaderInstance}'s uniforms are only meaningful once it is applied, and writing them
- * earlier lets the apply overwrite them with the defaults from the shader json. The callback runs
- * on every apply, so the values are always current.
+ * {@code ShaderInstance}'s uniforms are only meaningful once it is applied, and writing them earlier
+ * lets the apply overwrite them with the defaults from the shader json. The callback runs on every
+ * apply, so the values are always current.
  *
- * <p>There is no centre uniform: the mesh carries each vertex's offset from the domain centre in
- * its UV0, so the fragment stage derives the radial distance from that. It avoids a second source
- * of truth for the centre and keeps precision usable far from the world origin.
+ * <p>There is no radius uniform. The field covers the whole visible world, so a cut-off would only
+ * be a smaller version of the effect; the one thing with a size of its own is the glow around the
+ * caster, and that constant lives in the fragment stage.
  */
 @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public final class YuanDomainShaders {
@@ -30,129 +32,121 @@ public final class YuanDomainShaders {
     private static final org.slf4j.Logger LOGGER =
             org.slf4j.LoggerFactory.getLogger("YuanDomainShaders");
 
-    public static CCShaderInstance starfieldShader;
+    public static CCShaderInstance postShader;
 
     private static CCUniform uTime;
-    private static CCUniform uRadius;
-    private static CCUniform uFade;
     private static CCUniform uSeed;
     private static CCUniform uIntensity;
     private static CCUniform uColorBase;
     private static CCUniform uColorStar;
     private static CCUniform uColorCore;
+    private static CCUniform uInverseViewProjection;
+    private static CCUniform uCenter;
+    private static CCUniform uCameraWorldPos;
 
     // Values the onApply callback pushes. Held in fields because apply can run more than once per
     // frame (several buffers, several passes) and every apply must write the same values.
     private static float time;
-    private static float radius = 20.0f;
-    private static float fade = 6.0f;
     private static float seed;
     private static float intensity;
+    private static final Matrix4f INVERSE_VIEW_PROJECTION = new Matrix4f();
+    private static final Vector3f CENTER = new Vector3f();
+    private static final Vector3f CAMERA_WORLD_POS = new Vector3f();
     private static final Vector4f COLOR_BASE = new Vector4f(0.0f, 0.02f, 0.03f, 0.92f);
     private static final Vector4f COLOR_STAR = new Vector4f(0.75f, 0.85f, 1.0f, 1.0f);
     private static final Vector4f COLOR_CORE = new Vector4f(1.0f, 0.48f, 0.36f, 0.55f);
 
+    /** Accumulated seconds. A float cannot hold an absolute clock: see {@link #advanceClock}. */
+    private static float elapsedSeconds;
+
+    private static long lastFrameMillis = -1L;
+
     private YuanDomainShaders() {
     }
 
-    /** The compiled shader, for the render type's shader state. Null until shaders are registered. */
+    /** The compiled shader, or null until shaders are registered. */
     public static CCShaderInstance getShader() {
-        return starfieldShader;
+        return postShader;
+    }
+
+    /** True once the shader has been registered and every uniform resolved. */
+    public static boolean ready() {
+        return postShader != null
+                && uTime != null && uSeed != null && uIntensity != null
+                && uColorBase != null && uColorStar != null && uColorCore != null
+                && uInverseViewProjection != null && uCenter != null
+                && uCameraWorldPos != null;
     }
 
     @SubscribeEvent
     public static void registerShaders(RegisterShadersEvent event) throws IOException {
         event.registerShader(
                 CCShaderInstance.create(event.getResourceProvider(),
-                        ResourceLocation.fromNamespaceAndPath("yuan", "domain_starfield"),
-                        DefaultVertexFormat.POSITION_COLOR_TEX),
+                        ResourceLocation.fromNamespaceAndPath("yuan", "domain_starfield_post"),
+                        DefaultVertexFormat.POSITION_TEX),
                 shader -> {
-                    starfieldShader = (CCShaderInstance) shader;
-                    uTime = starfieldShader.getUniform("time");
-                    uRadius = starfieldShader.getUniform("domainRadius");
-                    uFade = starfieldShader.getUniform("domainFade");
-                    uSeed = starfieldShader.getUniform("domainSeed");
-                    uIntensity = starfieldShader.getUniform("domainIntensity");
-                    uColorBase = starfieldShader.getUniform("domainColorBase");
-                    uColorStar = starfieldShader.getUniform("domainColorStar");
-                    uColorCore = starfieldShader.getUniform("domainColorCore");
-                    starfieldShader.onApply(YuanDomainShaders::pushUniforms);
-                    // Confirms the shader compiled. A GLSL error here fails at runtime, not at
-                    // build time, so this line is the difference between a silent no-show and a
-                    // diagnosable one.
-                    //
-                    // Also reports whether getUniform() actually resolved. CCShaderInstance
-                    // overrides parseUniformNode and only adds to the `uniforms` list, while
-                    // getUniform() reads the separate `uniformMap`; if that map is never filled,
-                    // every lookup returns null, the push below silently skips every uniform, and
-                    // the shader runs on its json defaults. Those defaults must therefore be usable
-                    // values, not zeros -- domainIntensity defaults to 1.0 for exactly that reason.
-                    LOGGER.info("domain starfield shader registered (uniforms resolved: time={} radius={} "
-                                    + "fade={} seed={} intensity={} base={} star={} core={})",
-                            uTime != null, uRadius != null, uFade != null, uSeed != null,
-                            uIntensity != null, uColorBase != null, uColorStar != null,
-                            uColorCore != null);
+                    postShader = (CCShaderInstance) shader;
+                    uTime = postShader.getUniform("time");
+                    uSeed = postShader.getUniform("domainSeed");
+                    uIntensity = postShader.getUniform("domainIntensity");
+                    uColorBase = postShader.getUniform("domainColorBase");
+                    uColorStar = postShader.getUniform("domainColorStar");
+                    uColorCore = postShader.getUniform("domainColorCore");
+                    uInverseViewProjection = postShader.getUniform("InverseViewProjection");
+                    uCenter = postShader.getUniform("DomainCenter");
+                    uCameraWorldPos = postShader.getUniform("CameraWorldPos");
+
+                    postShader.onApply(YuanDomainShaders::pushUniforms);
+
+                    // Names are reported on registration because a typo in a uniform name is not an
+                    // error anywhere: the shader compiles, the lookup returns null, the value keeps
+                    // its json default, and the effect is simply wrong with nothing in the log.
+                    LOGGER.info("domain post shader registered (uniforms resolved: "
+                                    + "time={} seed={} intensity={} base={} star={} core={} invViewProj={} center={} cameraPos={})",
+                            uTime != null, uSeed != null, uIntensity != null,
+                            uColorBase != null, uColorStar != null, uColorCore != null,
+                            uInverseViewProjection != null, uCenter != null,
+                            uCameraWorldPos != null);
                 });
     }
 
-    /** Guards the one-shot uniform push report. Temporary diagnostic. */
-    private static boolean tracedPush;
+    /**
+     * Records the values the next apply will push.
+     *
+     * <p>Called once per holder per frame, immediately before that holder's draw. The callback reads
+     * these fields when it runs, so the values in force are always the ones for the pass being drawn.
+     */
+    public static void update(float seconds, float strength, Matrix4f inverseViewProjection,
+                              Vector3f center, Vector3f cameraWorldPos, float holderSeed) {
+        time = seconds;
+        intensity = strength;
+        seed = holderSeed;
+        INVERSE_VIEW_PROJECTION.set(inverseViewProjection);
+        CENTER.set(center);
+        CAMERA_WORLD_POS.set(cameraWorldPos);
+    }
 
     private static void pushUniforms() {
-        if (uTime != null) uTime.set(time);
-        if (uRadius != null) uRadius.set(radius);
-        if (uFade != null) uFade.set(fade);
-        if (uSeed != null) uSeed.set(seed);
-        if (uIntensity != null) uIntensity.set(intensity);
-        if (uColorBase != null) uColorBase.set(COLOR_BASE);
-        if (uColorStar != null) uColorStar.set(COLOR_STAR);
-        if (uColorCore != null) uColorCore.set(COLOR_CORE);
-
-        // Temporary: reports the first time the uniforms are actually written, with the values that
-        // reach the GPU. If the floor is still invisible, this line separates "the shader ran with
-        // intensity 0" from "the shader never ran at all". Remove once the floor is confirmed.
-        if (!tracedPush) {
-            tracedPush = true;
-            LOGGER.info("domain trace: pushUniforms ran, intensity={} radius={} fade={} "
-                            + "(null slots: time={} radius={} fade={} seed={} intensity={})",
-                    intensity, radius, fade,
-                    uTime == null, uRadius == null, uFade == null, uSeed == null, uIntensity == null);
+        if (uTime == null) {
+            return;
         }
+        uTime.set(time);
+        uSeed.set(seed);
+        uIntensity.set(intensity);
+        uColorBase.set(COLOR_BASE);
+        uColorStar.set(COLOR_STAR);
+        uColorCore.set(COLOR_CORE);
+        uInverseViewProjection.glUniformMatrix4f(INVERSE_VIEW_PROJECTION);
+        uCenter.set(CENTER);
+        uCameraWorldPos.set(CAMERA_WORLD_POS);
     }
-
-    /**
-     * Updates the per-frame values, before the floor is drawn.
-     *
-     * @param seconds  elapsed seconds from {@link #advanceClock()}, driving drift and twinkle
-     * @param r        domain radius in blocks
-     * @param strength 0..1 open/close fade; the floor is invisible at 0
-     */
-    public static void update(float seconds, float r, float strength) {
-        time = seconds;
-        radius = r;
-        // The rim scales with the domain so a small domain is not swallowed by its own edge.
-        fade = Math.max(2.0f, r * 0.3f);
-        seed = 0.0f;
-        intensity = strength;
-    }
-
-    /** True when the shader loaded and the floor can be drawn. */
-    public static boolean ready() {
-        return starfieldShader != null;
-    }
-
-    // Elapsed seconds, accumulated per frame. Deliberately NOT derived from an absolute clock:
-    // a float holds ~7 significant digits, so epoch seconds (~1.7e9) would quantise to ~128-second
-    // steps and the drift and twinkle would visibly stall. Accumulating from zero keeps full
-    // resolution for the first hours of play.
-    private static float elapsedSeconds;
-    private static long lastFrameMillis = -1L;
 
     /**
      * Advances the shader clock and returns elapsed seconds since the first call.
      *
-     * <p>Called once per frame. The step is clamped so a lag spike or a window that was paused
-     * cannot make the field jump.
+     * <p>Accumulated rather than read from an absolute clock: an absolute time in seconds stops
+     * being representable in a float after a few hours, and the field would visibly stall. The step
+     * is clamped so a lag spike or a paused window cannot make the field jump.
      */
     public static float advanceClock() {
         long now = net.minecraft.Util.getMillis();
@@ -162,7 +156,6 @@ public final class YuanDomainShaders {
         }
         long delta = now - lastFrameMillis;
         lastFrameMillis = now;
-        // 250 ms cap: beyond that the player was not watching, so the field should not lurch.
         elapsedSeconds += Math.min(delta, 250L) / 1000.0f;
         return elapsedSeconds;
     }

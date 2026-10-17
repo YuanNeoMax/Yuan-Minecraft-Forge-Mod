@@ -1,6 +1,5 @@
 package com.yuan;
 
-import com.yuan.domain.render.YuanDomainFloorMesh;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -25,20 +24,18 @@ public final class YuanDomainCheck {
                 "src/main/java/com/yuan/domain/YuanDomainRequestPacket.java"));
         String shaders = Files.readString(Path.of(
                 "src/main/java/com/yuan/domain/render/YuanDomainShaders.java"));
-        String render = Files.readString(Path.of(
-                "src/main/java/com/yuan/domain/render/YuanDomainRender.java"));
-        String state = Files.readString(Path.of(
-                "src/main/java/com/yuan/domain/render/YuanDomainRenderState.java"));
-        String terrain = Files.readString(Path.of(
-                "src/main/java/com/yuan/domain/render/YuanDomainTerrain.java"));
-        String mesh = Files.readString(Path.of(
-                "src/main/java/com/yuan/domain/render/YuanDomainFloorMesh.java"));
+        String render = stripComments(Files.readString(Path.of(
+                "src/main/java/com/yuan/domain/render/YuanDomainRender.java")));
+        // Stripped for the same reason as the render source: this file explains why depth testing is
+        // off by naming it, and the negative assertion below would match the explanation.
+        String state = stripComments(Files.readString(Path.of(
+                "src/main/java/com/yuan/domain/render/YuanDomainRenderState.java")));
         String vsh = Files.readString(Path.of(
-                "src/main/resources/assets/yuan/shaders/core/domain_starfield.vsh"));
+                "src/main/resources/assets/yuan/shaders/core/domain_starfield_post.vsh"));
         String fsh = Files.readString(Path.of(
-                "src/main/resources/assets/yuan/shaders/core/domain_starfield.fsh"));
+                "src/main/resources/assets/yuan/shaders/core/domain_starfield_post.fsh"));
         String json = Files.readString(Path.of(
-                "src/main/resources/assets/yuan/shaders/core/domain_starfield.json"));
+                "src/main/resources/assets/yuan/shaders/core/domain_starfield_post.json"));
         String sections = Files.readString(Path.of(
                 "src/main/kotlin/com/yuan/client/gui/V9Sections.kt"));
         String chrome = Files.readString(Path.of(
@@ -71,77 +68,166 @@ public final class YuanDomainCheck {
         assert request.contains("config.domainStarfield")
                 : "domain request must read the toggle from the holder's sword";
 
-        // ---- the floor follows the terrain --------------------------------------
-        assert terrain.contains("getHeight") && terrain.contains("MOTION_BLOCKING_NO_LEAVES")
-                : "the floor must sample real terrain height, not sit on a fixed plane";
-        assert terrain.contains("heightAt") && !terrain.contains("CACHE_TTL_MS")
-                : "terrain sampling stays uncached; a window smaller than the max radius is a second, "
-                        + "inconsistent code path";
-        assert mesh.contains("YuanDomainTerrain.heightAt")
-                : "the mesh must take vertex heights from the terrain sampler";
-        // The floor must sit ABOVE the sampled surface. getHeight returns the Y of the first air
-        // block, so a floor at or below it is buried in the ground and LEQUAL depth testing hides it
-        // entirely -- which is exactly what shipped in the first attempt.
-        assert mesh.contains("+ LIFT") && !mesh.contains("- 0.02f")
-                : "the floor must be lifted above the terrain, not sunk into it";
-        assert mesh.contains("LIFT = 0.05f")
-                : "the lift constant must stay positive";
-
         // ---- render-side conventions --------------------------------------------
-        assert render.contains("RenderLevelStageEvent") && render.contains("AFTER_PARTICLES")
-                : "the floor must draw at AFTER_PARTICLES like the other world-space effects";
-        assert render.contains("getMainCamera().getPosition()")
-                : "the floor must be positioned relative to the camera";
+        // AFTER_LEVEL, not AFTER_PARTICLES. The pass reads the depth buffer and needs the level
+        // fully drawn, and it must run before the hand and the HUD -- both of which happen later in
+        // GameRenderer. AFTER_PARTICLES is inside LevelRenderer, where the level is still being
+        // built, and would sample an incomplete depth buffer.
+        assert render.contains("RenderLevelStageEvent") && render.contains("Stage.AFTER_LEVEL")
+                : "the pass must draw at AFTER_LEVEL: the level is complete there and the hand and "
+                        + "HUD are not drawn yet";
+        assert !render.contains("Stage.AFTER_PARTICLES")
+                : "AFTER_PARTICLES is inside LevelRenderer, where the depth buffer is incomplete";
+        assert render.contains("getMainCamera()") && render.contains(".getPosition()")
+                : "the domain centre must be resolved relative to the camera";
         assert render.contains("findHolder") && render.contains("level.players()")
                 : "holder position must be resolved from the local player list; Level.getPlayerByUUID "
                         + "is defined in terms of the server's player list and is wrong on a client";
 
+        // ---- the depth-reconstruction contract ------------------------------------
+        // This is the whole technique: the pixel's NDC position plus its depth, mapped back through
+        // the inverse of the view-projection the terrain was drawn with. Get any of these wrong and
+        // the field lands in the wrong place, which is indistinguishable from "nothing happened".
+        assert render.contains("getDepthTextureId()")
+                : "the pass reconstructs from the depth attachment; without it there is no world "
+                        + "position to compute a star field in";
+        // ---- the view-projection must be built from the camera, and only from the camera ----
+        //
+        // Both convenient sources were tried on screen and both are wrong at AFTER_LEVEL, and the
+        // logged values say why rather than leaving it to inference:
+        //
+        //   RenderSystem.getModelViewMatrix()   logged as the identity. The model-view is reset once
+        //                                       the level renderer finishes, so multiplying by it
+        //                                       collapses the pair to the bare projection.
+        //   event.getPoseStack().last().pose()  logged bit-identical to event.getProjectionMatrix(),
+        //                                       because GameRenderer seeds that stack with the
+        //                                       projection. Multiplying by it computes P x P.
+        //
+        // Both left |normal.y| near zero, so no ground was ever detected. The working construction is
+        // the camera's own basis through lookAt, which maps forward onto -Z as the projection expects.
+        // These assertions exist so neither shortcut can be reintroduced.
+        assert !render.contains("RenderSystem.getModelViewMatrix()")
+                : "RenderSystem's model-view is the identity at AFTER_LEVEL (verified by logging it); "
+                        + "multiplying by it drops the view rotation entirely";
+        assert !render.contains("getPoseStack()")
+                : "the event's pose stack carries the projection matrix at AFTER_LEVEL (verified: "
+                        + "bit-identical to getProjectionMatrix), so `P x pose` is `P x P`";
+        assert render.contains("getLookVector()") && render.contains("getUpVector()")
+                && render.contains("lookAt(")
+                : "the view must be reconstructed from the camera's look and up vectors via lookAt";
+        assert render.contains("VIEW_PROJECTION.set(RenderSystem.getProjectionMatrix())")
+                : "the projection still comes from RenderSystem; only the view is rebuilt";
+        assert !fsh.contains("InverseViewProjectionAlt")
+                : "the diagnostic's second candidate uniform must not survive into the real shader";
+        assert render.contains("invert()")
+                : "the view-projection must be inverted; the pass maps pixels back to world space";
+        assert render.contains("setShaderTexture(0, depthCopy.getDepthTextureId())")
+                : "the depth attachment must be bound to sampler 0, which is what the fragment stage "
+                        + "declares";
+        // Sampling a texture that is attached to the framebuffer being drawn into is undefined
+        // behaviour, and at this point the main target is both. The depth is blitted into a private
+        // target first, and that copy is what gets sampled.
+        assert render.contains("copyDepthFrom(")
+                : "the depth must be copied out of the main target before it is sampled; reading the "
+                        + "attachment of the framebuffer being written is undefined";
+        // copyDepthFrom and resize both end by binding framebuffer 0 -- the screen, not the target
+        // the frame is being composed into. Without the re-bind, this pass and everything the level
+        // renderer draws after it bypass the post-processing chain.
+        assert render.contains("bindWrite(true)")
+                : "the main target must be re-bound after the depth blit, or the rest of the frame "
+                        + "renders to the default framebuffer";
+        assert render.contains("TextureTarget(")
+                : "RenderTarget is abstract in 1.20.1; the copy needs a concrete TextureTarget";
+        // ---- the field must be anchored to the world, not to the caster ----
+        //
+        // The star grid is indexed by `worldPos.xz - DomainCenter.xz`. Both operands must be absolute
+        // world coordinates for the grid to stay still: the first version passed both camera-relative,
+        // so the camera position cancelled and the grid was indexed by (world - caster) -- which
+        // translates with the caster, and read as the whole field sliding and stuttering underfoot.
+        assert render.contains("player.getX()") && render.contains("CAMERA_WORLD_POS.set((float) camera.x")
+                : "both the caster and the camera must be passed as absolute world positions";
+        assert !render.contains("player.getX() - camera.x")
+                : "a camera-relative centre is subtracted twice in the shader and slides the field "
+                        + "with the player";
+        assert fsh.contains("CameraWorldPos") && fsh.contains("worldPos = relPos + CameraWorldPos")
+                : "the reconstruction is camera-relative; only adding the camera's world position "
+                        + "yields a world-anchored grid";
+        // ---- the grid and the glow use different coordinates, deliberately ----
+        //
+        // The glow follows the caster, so it is indexed by worldXZ - casterXZ. The grid must NOT be:
+        // subtracting any position that itself moves translates the whole cell array by that
+        // movement. The first version shared one `radial` for both, which is exactly the slide the
+        // user reported -- the grid has to be indexed by absolute world XZ and rotated about a fixed
+        // point, because a rotation about a moving centre is a rotation plus a translation.
+        assert fsh.contains("vec2 grid = worldPos.xz;")
+                : "the star grid must be indexed by absolute world XZ, not by a caster-relative "
+                        + "offset, or the whole field slides with the player";
+        assert fsh.contains("vec2 fromCaster = worldPos.xz - DomainCenter.xz;")
+                : "the glow follows the caster, so it alone is indexed by the caster-relative offset";
+        assert fsh.contains("grid.x * ca - grid.y * sa")
+                : "the rotation must be applied to the world-anchored grid, not to the "
+                        + "caster-relative offset";
+        assert !fsh.contains("radial")
+                : "the shared `radial` variable is what let the grid and the glow collapse into one "
+                        + "coordinate space; if it returns, so does the slide";
+        // ---- full coverage -------------------------------------------------------
+        //
+        // The mask used to keep only upward-facing surfaces, judged from screen-space derivatives of
+        // the reconstructed position. That rejected every entity outright (their normals point
+        // sideways), left patchy holes wherever the depth buffer quantises, and took the horizontal
+        // cloud layer while rejecting the cliffs beside it. The mask is now simply "anything the
+        // level renderer drew", which is also what the user asked for: the domain is the whole world.
+        assert !fsh.contains("dFdx") && !fsh.contains("dFdy")
+                : "the derivative-based ground test is gone: it rejected entities outright and left "
+                        + "patchy holes where the depth buffer quantises";
+        assert fsh.contains("float mask = sky * domainIntensity;")
+                : "coverage must be everything the level renderer drew, not just upward-facing faces";
+        // The vertex stage emits clip-space positions, so both matrices must be identity. Passing
+        // RenderSystem's matrices would transform an already-clip-space triangle a second time.
+        assert render.contains("drawWithShader(IDENTITY, IDENTITY")
+                : "the full-screen triangle is already in clip space; both matrices must be identity";
+
         // ---- the submission path -------------------------------------------------
-        // The first version wrapped the floor in a custom RenderType drawn through the shared buffer
-        // source. Geometry was submitted and uniforms landed -- both confirmed in the log -- and
-        // nothing reached the screen. Every other world-space renderer in this project that owns a
-        // custom shader falls back to a vanilla shader when a shader pack is present; this was the
-        // only one with no fallback and no precedent. The floor is now submitted directly: the
-        // program is selected explicitly, the GL state is set explicitly, and the geometry goes
-        // through a private BufferBuilder into a VertexBuffer that is drawn with the matrices and
-        // program that are actually current. These assertions exist so a later edit cannot quietly
-        // reintroduce the layer that did not work.
+        // The pass is one full-screen triangle: three vertices, no geometry to rebuild, no terrain
+        // sampling, no per-axis cell cap. These assertions exist so a later edit cannot quietly
+        // reintroduce the mesh -- whose step had to grow with the radius, which is exactly why the
+        // floor stopped hugging the ground once the world got large.
         assert !render.contains("getBuffer(")
-                : "the floor must not go back through MultiBufferSource.getBuffer";
+                : "the pass must not go through MultiBufferSource.getBuffer";
         assert !render.contains("endBatch(")
-                : "the floor must not go back through MultiBufferSource.endBatch";
+                : "the pass must not go through MultiBufferSource.endBatch";
         assert !render.contains("YuanDomainRenderTypes")
-                : "the floor must not depend on the removed custom RenderType";
+                : "the pass must not depend on the removed custom RenderType";
+        assert !render.contains("YuanDomainFloorMesh")
+                : "the mesh builder is gone: a capped grid cannot cover the render distance, and its "
+                        + "step grows with the radius until the floor cuts through terrain";
+        assert !render.contains("YuanDomainTerrain")
+                : "terrain sampling is gone: the depth buffer already carries the surface";
         assert render.contains("RenderSystem.setShader")
                 : "the submission must select the program explicitly";
-        assert render.contains("getShader()")
-                : "the submission must read back the selected program; drawing with a null program "
-                        + "would submit geometry against whatever was bound";
         assert render.contains("new VertexBuffer(") && render.contains("VertexBuffer.Usage.DYNAMIC")
-                : "the floor needs its own GPU buffer, re-uploaded each frame as it follows terrain";
+                : "the pass needs its own GPU buffer";
         assert render.contains("upload(") && render.contains("drawWithShader(")
-                : "the geometry must be uploaded to the buffer and drawn with the current matrices";
-        assert render.contains("RenderSystem.getModelViewMatrix()")
-                && render.contains("RenderSystem.getProjectionMatrix()")
-                : "drawWithShader needs the model-view and projection matrices that are current; "
-                        + "passing anything else draws the mesh somewhere off screen";
+                : "the triangle must be uploaded to the buffer and drawn with the program";
         assert !render.contains("starfieldShader.apply()")
                 : "the render path must NOT call apply() itself: it uploads to whatever program is "
                         + "bound at that moment and clears CCUniform's dirty flag, after which the real "
                         + "apply() skips the upload and the shader keeps its json defaults";
 
         // ---- GL state ------------------------------------------------------------
-        // The state shards used to arrange this. It is explicit now, next to the draw that needs it,
-        // and it is undone afterwards -- otherwise the rest of the frame renders with blending or
-        // depth writes left in the wrong state.
+        // Written out explicitly next to the draw that needs it, and undone afterwards -- otherwise
+        // the hand and the HUD render with blending or depth writes left in the wrong state.
         assert state.contains("enableBlend") && state.contains("defaultBlendFunc")
-                : "the floor needs a real alpha blend; an additive layer cannot darken anything";
+                : "the pass composites over the ground, so it needs a real alpha blend";
         assert state.contains("disableCull")
-                : "the terrain-following mesh folds on steep ground, so culling must be off";
+                : "the full-screen triangle's winding depends on the projection's handedness, so "
+                        + "culling must be off";
+        assert state.contains("disableDepthTest")
+                : "the pass IS the ground: testing it against the depth buffer it was reconstructed "
+                        + "from compares it against itself";
         assert state.contains("depthMask(false)")
-                : "the floor must not write depth, or it would occlude the sky and later passes";
-        assert state.contains("depthFunc") && state.contains("GL_LEQUAL")
-                : "the floor must be depth-tested against the terrain it lies on";
+                : "the pass must not write depth, or it would occlude the sky and everything drawn "
+                        + "after it";
         assert render.contains("YuanDomainRenderState.apply()")
                 && render.contains("YuanDomainRenderState.restore()")
                 : "the GL state must be both applied and restored around the draw";
@@ -154,16 +240,14 @@ public final class YuanDomainCheck {
                 : "reset() must not close the GPU buffer: logout is a network-side event, and a "
                         + "VertexBuffer close issues GL deletes that belong on the render thread";
         assert render.contains("private static BufferBuilder builder()")
-                && render.contains("private static VertexBuffer floorBuffer()")
+                && render.contains("private static VertexBuffer triangleBuffer()")
                 : "the scratch builder and the GPU buffer must be created lazily from the draw path, "
                         + "which is the render thread";
-        // The empty-mesh path must still call end(): the builder throws "Already building!" on the
-        // next begin() otherwise. The result is null-checked because BufferBuilder offers two end
-        // variants and only one of them is guaranteed non-null; the check costs nothing and keeps
-        // the path correct whichever variant the call resolves to.
-        assert render.contains("RenderedBuffer empty") && render.contains("if (empty != null)")
-                : "the empty-mesh path must call end() to clear the building state, and must not "
-                        + "dereference the result without a null check";
+        // end() must still be called on every path, or the builder stays in its building state and
+        // the next begin() throws "Already building!". The result is null-checked because
+        // BufferBuilder offers two end variants and only one of them is guaranteed non-null.
+        assert render.contains("RenderedBuffer rendered") && render.contains("if (rendered == null)")
+                : "the builder's end() result must be null-checked before use";
 
         // ---- shader wiring ------------------------------------------------------
         assert shaders.contains("onApply")
@@ -172,57 +256,95 @@ public final class YuanDomainCheck {
                 : "the shader clock must accumulate rather than read an absolute clock, which a float cannot hold";
         assert !shaders.contains("currentTimeMillis() / 1000")
                 : "an absolute-seconds float quantises to ~128s steps and stalls the animation";
-        assert fsh.contains("discard") && fsh.contains("domainRadius")
-                : "the fragment stage must fade the field out at the real radius";
-        assert vsh.contains("UV0") && fsh.contains("worldXZ")
-                : "the mesh must pass the centre-relative offset through UV0";
-        assert !json.contains("domainCenter")
-                : "the centre is carried per-vertex, so a centre uniform would be a second source of truth";
-        assert json.contains("domain_starfield") && json.contains("\"Position\"")
+        // There is no radius uniform any more: the field covers the whole visible world, so a
+        // cut-off would only be a smaller version of the effect. What still has a size of its own is
+        // the glow around the caster, and that constant lives in the fragment stage.
+        assert !fsh.contains("domainRadius")
+                : "the field is unbounded now; a radius uniform would reintroduce the circle that "
+                        + "made the domain look like a patch around the player";
+        assert !json.contains("domainRadius")
+                : "the json must not declare a radius uniform the shader no longer reads";
+        assert fsh.contains("InverseViewProjection") && fsh.contains("screenUv")
+                : "the fragment stage must reconstruct from the depth buffer through the inverse "
+                        + "view-projection";
+        assert vsh.contains("UV0") && fsh.contains("DomainCenter")
+                : "the triangle's UV0 carries the screen coordinate and the centre arrives as a "
+                        + "camera-relative uniform";
+        assert json.contains("domain_starfield_post") && json.contains("\"Position\"")
                 : "shader json must name both stages and declare the vertex attributes";
+        assert json.contains("\"name\": \"Sampler0\"")
+                : "the json must declare the depth sampler the fragment stage reads";
         // The json defaults are the values the shader runs with whenever the uniform push does not
         // land. A default of 0 for domainIntensity discards every fragment and the floor silently
         // disappears -- with the geometry still submitted and nothing in the log. The defaults must
         // therefore be a usable image on their own.
-        assert json.contains("\"name\": \"domainIntensity\", \"type\": \"float\", \"count\": 1, \"values\": [ 1.0 ]")
+        // Matched against the json with its whitespace collapsed: the assertion is about the value,
+        // not about how the file happens to be indented.
+        String jsonFlat = json.replaceAll("\\s+", " ");
+        assert jsonFlat.contains("\"name\": \"domainIntensity\", \"type\": \"float\", \"count\": 1, \"values\": [ 1.0 ]")
                 : "domainIntensity must default to 1.0, not 0.0: a zero default discards every "
                         + "fragment if the uniform push ever fails, and the failure is invisible";
 
-        // ---- numeric behaviour of the mesh builder ------------------------------
-        // The grid step must grow with the radius, or a large domain explodes the vertex count.
-        double smallStep = YuanDomainFloorMesh.stepFor(20.0f);
-        double largeStep = YuanDomainFloorMesh.stepFor(128.0f);
-        assert largeStep > smallStep
-                : "grid step must grow with the radius (20 -> " + smallStep + ", 128 -> " + largeStep + ")";
-        assert smallStep >= 1.0
-                : "grid step must never go below one block, got " + smallStep;
-
-        // The vertex budget must stay bounded no matter how far the player pushes the slider.
-        for (float r : new float[]{4.0f, 20.0f, 64.0f, 128.0f}) {
-            double step = YuanDomainFloorMesh.stepFor(r);
-            int cells = (int) Math.ceil(r / step);
-            int quads = (cells * 2) * (cells * 2);
-            assert quads <= 40_000
-                    : "radius " + r + " would emit " + quads + " quads, past the budget";
-        }
-
-        // Worst-case vertices at the largest radius must fit the geometry buffer, or the builder
-        // reallocates mid-mesh every frame.
-        double maxStep = YuanDomainFloorMesh.stepFor(128.0f);
-        int maxSpan = (int) Math.ceil(128.0 / maxStep) + 1;
-        int maxQuads = (maxSpan * 2) * (maxSpan * 2);
-        int maxVerts = maxQuads * YuanDomainFloorMesh.vertsPerQuad();
-        assert YuanDomainFloorMesh.vertsPerQuad() == 6
-                : "each quad is two triangles, so six vertices";
-        // POSITION_COLOR_TEX is position (3 floats), colour (4 unsigned bytes) and UV0 (2 floats).
-        int vertexBytes = 3 * 4 + 4 + 2 * 4;
-        long worstCaseBytes = (long) maxVerts * vertexBytes;
-        assert render.contains("1 << 21")
-                : "the geometry buffer must stay declared as a named size, not a bare literal";
-        assert worstCaseBytes < (1L << 21)
-                : "worst-case geometry " + worstCaseBytes + " bytes at " + maxVerts
-                        + " vertices exceeds the declared 2 MB buffer";
+        // ---- the terrain sampler and the mesh builder are gone -------------------
+        // Both existed to make a grid follow the ground, and both are obsolete: the pass reads the
+        // depth buffer, which already carries the exact surface at any distance. Keeping them would
+        // leave two sources of truth for "where is the ground" -- and the mesh one is the one that
+        // could not cover the render distance.
+        assert !Files.exists(Path.of(
+                "src/main/java/com/yuan/domain/render/YuanDomainTerrain.java"))
+                : "the terrain sampler is obsolete: the depth buffer carries the surface";
+        assert !Files.exists(Path.of(
+                "src/main/java/com/yuan/domain/render/YuanDomainFloorMesh.java"))
+                : "the mesh builder is obsolete: a capped grid cannot cover the render distance";
+        // The old pair would still be loaded by the shader registry if it were left on disk, and a
+        // stale shader that nothing draws is a compile error waiting to happen on someone else's GPU.
+        assert !Files.exists(Path.of(
+                "src/main/resources/assets/yuan/shaders/core/domain_starfield.fsh"))
+                : "the mesh-era fragment stage must be removed, not left registered and unused";
+        assert !Files.exists(Path.of(
+                "src/main/resources/assets/yuan/shaders/core/domain_starfield.json"))
+                : "the mesh-era shader json must be removed with its stages";
+        assert !Files.exists(Path.of(
+                "src/main/resources/assets/yuan/shaders/core/domain_starfield.vsh"))
+                : "the mesh-era vertex stage must be removed with its siblings";
 
         System.out.println("YuanDomainCheck OK");
+    }
+
+    /**
+     * Removes {@code //} line comments and {@code /* ... *}{@code /} block comments.
+     *
+     * <p>Source assertions are a cheap way to pin a contract, but they match text, and a comment that
+     * explains why something is wrong reads exactly like the thing being wrong. Negative assertions
+     * ("this must not appear") are the ones that break: the file that documents a fixed bug mentions
+     * the very token that must never come back. Stripping comments first keeps the assertion about
+     * the code.
+     *
+     * <p>Not a parser, and does not need to be. It does not track string literals, so a {@code //}
+     * inside a string would be treated as a comment; no assertion here reads a string that contains
+     * one.
+     */
+    private static String stripComments(String source) {
+        StringBuilder out = new StringBuilder(source.length());
+        int i = 0;
+        int n = source.length();
+        while (i < n) {
+            char c = source.charAt(i);
+            if (c == '/' && i + 1 < n && source.charAt(i + 1) == '/') {
+                while (i < n && source.charAt(i) != '\n') {
+                    i++;
+                }
+            } else if (c == '/' && i + 1 < n && source.charAt(i + 1) == '*') {
+                i += 2;
+                while (i + 1 < n && !(source.charAt(i) == '*' && source.charAt(i + 1) == '/')) {
+                    i++;
+                }
+                i = Math.min(n, i + 2);
+            } else {
+                out.append(c);
+                i++;
+            }
+        }
+        return out.toString();
     }
 }
