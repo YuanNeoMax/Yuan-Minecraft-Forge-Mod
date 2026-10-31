@@ -457,18 +457,22 @@ public final class YuanAuroraCheck {
                     : "the renderer must expose a per-panel glass draw";
             assert fxSrc.contains("y0 = 1f - (yPx / screenH) * 2f")
                     : "GL's Y grows upward while the layout's grows down; the flip is required";
-            // The composition publishes the rectangle; the renderer reads it. Only Compose knows
-            // where a panel is, and re-deriving it from the fractions would re-implement the layout.
-            String rectSrc = Files.readString(Path.of(
-                    "src/main/kotlin/com/yuan/client/aurora/GlassRects.kt"));
-            assert rectSrc.contains("fun add(") && rectSrc.contains("fun snapshot()")
-                    && rectSrc.contains("fun clear()")
-                    : "the panel rectangles must be published, read and rebuilt per frame";
-            // Read from the file the call actually lives in: `screenSrc` above is the OTHER screen.
+            // KEYED AND PERSISTENT, NOT REBUILT PER FRAME. `onGloballyPositioned` fires when a node's
+            // position CHANGES, not once per frame, so a registry cleared every frame would be
+            // refilled only on frames where something moved -- and the glass would vanish the moment
+            // the window settled. Panels register under an id and withdraw on dispose.
             String composeSrc = Files.readString(Path.of(
                     "src/main/kotlin/com/yuan/client/aurora/AuroraComposeScreen.kt"));
-            assert composeSrc.contains("GlassRects.clear()")
-                    : "a rectangle that outlived its panel would leave glass with nothing behind it";
+            String rectSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/GlassRects.kt"));
+            assert rectSrc.contains("fun put(") && rectSrc.contains("fun snapshot()")
+                    && rectSrc.contains("fun remove(")
+                    : "the panel rectangles must be published, read, and withdrawn on dispose";
+            assert !rectSrc.contains("fun clear()")
+                    : "a per-frame clear cannot work: the publish only fires on layout changes";
+            // Withdrawal is what keeps glass from outliving its panel.
+            assert shell.contains("GlassRects.remove(title)")
+                    : "a panel must withdraw its rectangle when it leaves";
             // In glass mode the panel must NOT paint its own background: the refraction is drawn
             // before the composition, so a flat pane would cover the very thing it is made of.
             String lookSrc = Files.readString(Path.of(
@@ -534,10 +538,20 @@ public final class YuanAuroraCheck {
             // requestClose directly, which left the ESC path as the only one that slammed shut.
             assert !screenSrc.contains("dirty = false\n                            requestClose()")
                     : "the confirm dialog must animate out too";
-            // The window's fade must be read in a DRAW phase: a composition-phase read would
-            // recompose the whole window on every frame of the fade.
-            assert screenSrc.contains("val a = windowAppear.value")
-                    : "the window fade must be read inside graphicsLayer";
+            // THE ROOT LAYER MUST BE CONDITIONAL, and this assertion is what catches the regression.
+            // A `graphicsLayer` on the composition root turns the whole window into one cached layer;
+            // on this scene the picture then stops following the model while the controls keep
+            // responding -- reported as "设置界面没反应，但是你拖动，点击实际有效果".
+            //
+            // The read is in composition because the CONDITION depends on it, which is the price of
+            // correct repainting; the layer itself is absent whenever the ramp has settled.
+            assert screenSrc.contains("val appearNow = windowAppear.value")
+                    : "the window ramp must be read where the conditional layer can see it";
+            assert screenSrc.contains("val fading = appearNow < 0.999f")
+                    : "the root layer must exist only while the window is animating";
+            assert screenSrc.contains("if (fading)")
+                    && screenSrc.contains("Modifier.graphicsLayer {")
+                    : "the layer must be attached conditionally, or the window stops repainting";
         }
 
         // The rail's marker is the exception: a bar rather than a surface. Its COLOUR is now a

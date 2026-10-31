@@ -405,6 +405,11 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
         ProvideLayoutRevision(layout, revision) {
         // The composition root, measured once: the stage every window-level surface resolves its
         // fractions against. The menu needs it, and the shell only hands its interior down.
+        // Read BEFORE the Box, because the conditional layer below needs it and a `val` cannot sit
+        // inside a modifier chain. This is the composition-phase read the previous version avoided;
+        // it re-runs this node on each frame of the ramp, which is what the conditional layer costs.
+        val appearNow = windowAppear.value
+        val fading = appearNow < 0.999f
         androidx.compose.foundation.layout.Box(
             Modifier
                 .fillMaxSize()
@@ -412,24 +417,34 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                 // A mouse move puts the focus ring away: the keyboard is no longer the input in use.
                 // Applied at the root so it rides the hit path rather than competing for it.
                 .clearFocusOnPointer(focus)
-                // THE WINDOW'S ARRIVAL AND DEPARTURE, on the whole stage.
+                // THE WINDOW'S ARRIVAL AND DEPARTURE.
                 //
-                // One `alpha` drives both directions, so the exit is the mirror of the entrance
-                // rather than a second animation that has to be kept in step with it.
+                // ATTACHED ONLY WHILE THE RAMP IS RUNNING, and that conditional is the whole point.
                 //
-                // A slight scale accompanies the fade: at 0.985 -> 1.0 the window reads as settling
-                // forward rather than as a rectangle being turned up and down. Any larger and the
-                // rail's text visibly reflows as it scales, which is worse than no animation.
+                // A `graphicsLayer` turns the node and everything under it into a cached layer. On
+                // this scene -- Skia painting into a framebuffer through a host that never takes
+                // focus -- a root-level layer covering the entire window is exactly the shape that
+                // stops repainting: the model keeps changing, the controls keep responding, and the
+                // picture stops following because the layer is not re-recorded. That is the reported
+                // "设置界面没反应，但是你拖动，点击实际有效果".
                 //
-                // The fade is read in `graphicsLayer`, in the DRAW phase. A composition-phase read
-                // would recompose the entire window -- rail, content and every open panel -- on each
-                // frame of the fade, for an effect that only changes pixels.
-                .graphicsLayer {
-                    val a = windowAppear.value
-                    alpha = a
-                    scaleX = 0.985f + 0.015f * a
-                    scaleY = 0.985f + 0.015f * a
-                }
+                // The ramp is read just above, so this node re-runs while it animates -- 380ms, the
+                // price of an entrance; at rest the layer is absent and every interaction draws the
+                // ordinary way.
+                .then(
+                    if (fading) {
+                        Modifier.graphicsLayer {
+                            alpha = appearNow
+                            // A slight scale to read as settling forward rather than as a rectangle
+                            // being turned up and down. Any larger and the rail's text visibly
+                            // reflows as it scales, which is worse than no animation.
+                            scaleX = 0.985f + 0.015f * appearNow
+                            scaleY = 0.985f + 0.015f * appearNow
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
         ) {
         AuroraShell(
             title = "星渊",

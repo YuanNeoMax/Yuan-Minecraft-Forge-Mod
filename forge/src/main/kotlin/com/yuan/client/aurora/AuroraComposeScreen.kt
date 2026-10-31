@@ -206,9 +206,10 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
 
         // The backdrop goes down first: it reads the main target and writes it back blurred and
         // dimmed, so it must run before anything else touches that target this frame.
-        // Rebuilt every frame: each live panel registers itself again during the composition, so an
-        // entry that outlived its panel cannot leave a piece of glass behind with nothing in it.
-        GlassRects.clear()
+        // The registry is NOT cleared here. `onGloballyPositioned` fires when a node's position
+        // changes rather than once per frame, so a list emptied every frame would be refilled only on
+        // the frames where something moved -- and the glass would disappear the moment the window
+        // settled. Panels register under their own id and withdraw on dispose instead.
         blurBackdrop(mc)
         drawLiquidGlass(mc)
 

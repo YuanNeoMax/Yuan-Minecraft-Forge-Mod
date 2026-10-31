@@ -387,6 +387,12 @@ internal fun BoxScope.AuroraFloatingPanel(
     // it is a compile error. The panel's corner radius does not change between layout passes anyway.
     val glassRadiusPx = with(density) { panelLook.panelCorner.toPx() }
 
+    // WITHDRAWN WHEN THIS PANEL LEAVES. `onGloballyPositioned` cannot report a removal -- the node
+    // is simply gone -- so without this the glass would stay on screen with nothing behind it.
+    androidx.compose.runtime.DisposableEffect(title) {
+        onDispose { GlassRects.remove(title) }
+    }
+
     AuroraWindowFrame(
         box = box,
         stage = stagePx,
@@ -413,7 +419,8 @@ internal fun BoxScope.AuroraFloatingPanel(
                 .onGloballyPositioned { coordinates ->
                     val topLeft = coordinates.positionInRoot()
                     val size = coordinates.size
-                    GlassRects.add(
+                    GlassRects.put(
+                        id = title,
                         x = topLeft.x,
                         y = topLeft.y,
                         w = size.width.toFloat(),
