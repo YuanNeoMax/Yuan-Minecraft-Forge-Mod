@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -110,6 +113,30 @@ internal fun GodSwordRowLine(
     @Suppress("UNUSED_EXPRESSION")
     com.yuan.client.aurora.LocalLayoutRevision.current
     val row = godRow.row
+
+    // RIGHT-CLICK THE ROW TO PUT IT BACK TO ITS DEFAULT.
+    //
+    // On the row rather than a small control beside the value: a control per row would add eighteen
+    //-odd buttons to a panel that is already dense, and the action is rare enough that it does not
+    //earn permanent space. A row that has no meaningful single default (a colour swatch, a preset
+    //slot) declares so by returning false, and then does nothing at all -- which is better than a
+    //control that appears and silently fails.
+    Box(
+        Modifier.fillMaxWidth().pointerInput(row.id) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull() ?: continue
+                    if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                        if (GodSwordBinding.resetRow(godRow, holder)) {
+                            change.consume()
+                            onChanged()
+                        }
+                    }
+                }
+            }
+        }
+    ) {
     when (row.type) {
         GodSwordRows.TYPE_SWITCH -> AuroraRow(row.name, row.desc) {
             AuroraToggle(
@@ -193,6 +220,7 @@ internal fun GodSwordRowLine(
         }
 
         else -> Unit
+    }
     }
 }
 

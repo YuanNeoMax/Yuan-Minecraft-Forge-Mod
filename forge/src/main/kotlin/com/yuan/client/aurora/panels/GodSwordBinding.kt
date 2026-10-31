@@ -338,6 +338,73 @@ internal object GodSwordBinding {
     }
 
     /**
+     * The default configuration, built once and never written to.
+     *
+     * <p>`V9State`'s field initialisers ARE the defaults, so a holder built from a bare `V9State()`
+     * is the default configuration -- no second table to keep in step with the first. It is shared
+     * because it is a constant: one per row would be 182 fields' worth of holders for eight rows of
+     * a panel, and threading one down through three layers would put a parameter on every panel
+     * signature to carry something none of them vary.
+     *
+     * <p>READ-ONLY BY CONTRACT. Every use is a read on the way to writing the target holder; nothing
+     * may write here, or the "default" would drift into whatever was last reset and every later
+     * reset would restore that instead.
+     */
+    private val defaultsHolder: V9Holder by lazy { V9Holder(com.yuan.client.gui.V9State()) }
+
+    /** Puts [godRow] back to its default. See [resetRow] for what is and is not covered. */
+    internal fun resetRow(godRow: GodRow, target: V9Holder): Boolean =
+        resetRow(godRow, target, defaultsHolder)
+
+    /**
+     * Puts ONE row back to its default, reading that default from a freshly built state.
+     *
+     * <p>WHERE THE DEFAULT COMES FROM. `V9State` carries the values, and its field initialisers are
+     * the defaults -- so `V9Holder(V9State())` IS the default configuration, with no second table to
+     * keep in step. A separate defaults table would be a second place for a setting to be declared,
+     * and the two would drift the first time one was changed.
+     *
+     * <p>Only the four kinds this dispatch owns are handled. Colour-swatch and preset rows are drawn
+     * by the inline panel rather than through here, and their "default" is not a single value (a
+     * swatch may have no default at all, and a preset row edits a whole slot). Returning false for
+     * those lets the caller decide -- today it offers no reset there rather than a control that
+     * silently does nothing.
+     *
+     * @return true when a value was actually written.
+     */
+    internal fun resetRow(godRow: GodRow, target: V9Holder, defaults: V9Holder): Boolean {
+        val id = godRow.row.id
+        return when (godRow.row.type) {
+            GodSwordRows.TYPE_SWITCH -> {
+                writeBool(id, target, readBool(id, defaults))
+                true
+            }
+            GodSwordRows.TYPE_SEGMENT -> {
+                writeIndex(id, target, readIndex(id, defaults))
+                true
+            }
+            GodSwordRows.TYPE_SLIDER -> {
+                // The scale is NOT applied here: readFloat and writeFloat both speak the stored unit,
+                // so a value copied between two holders needs no conversion. Applying the display
+                // factor on one side only is the mistake the row's `scale` field exists to prevent.
+                writeFloat(id, target, readFloat(id, defaults))
+                true
+            }
+            GodSwordRows.TYPE_CHANNEL -> {
+                val field = godRow.colourField
+                val channel = godRow.channel
+                if (field == null || channel == null) {
+                    false
+                } else {
+                    writeChannel(field, channel, target, readChannel(field, channel, defaults))
+                    true
+                }
+            }
+            else -> false
+        }
+    }
+
+    /**
      * The packed colour behind a channel row, or null for an unknown field.
      *
      * <p>Null rather than a default: a channel row whose field is misspelled would otherwise write

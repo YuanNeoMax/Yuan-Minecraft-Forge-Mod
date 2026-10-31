@@ -394,6 +394,31 @@ public final class YuanAuroraCheck {
                     : "choosing a hit must open the feature it lives in";
             assert screenSrc.contains("val searchHits = remember(query, revision)")
                     : "the hits must be keyed on the query, not recomputed every frame";
+
+            // ---- Tier C: one row back to its default ------------------------------------------
+            String bindSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordBinding.kt"));
+            // The default comes from `V9State`'s own field initialisers, so there is exactly one
+            // place a default is declared. A second table would drift the first time either moved.
+            assert bindSrc.contains("V9Holder(com.yuan.client.gui.V9State())")
+                    : "the defaults must come from V9State's initialisers, not a parallel table";
+            // Shared, and read-only: writing here would make each reset restore the previous reset.
+            assert bindSrc.contains("private val defaultsHolder: V9Holder by lazy")
+                    : "the defaults holder must be built once and shared";
+            // The scale is NOT applied: readFloat and writeFloat both speak the stored unit, so
+            // applying the display factor on one side is the bug the row's `scale` field prevents.
+            assert bindSrc.contains("writeFloat(id, target, readFloat(id, defaults))")
+                    : "a copied value must not be scaled; both accessors speak the stored unit";
+            // Rows with no single default must say so rather than appear to work.
+            assert bindSrc.contains("else -> false")
+                    : "a row with no meaningful default must report that it cannot reset";
+            String rowSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordPanel.kt"));
+            assert rowSrc.contains("GodSwordBinding.resetRow(godRow, holder)")
+                    : "the row must offer the reset";
+            // One handler for every kind of row, wrapped once, so no branch can forget it.
+            assert rowSrc.contains("event.buttons.isSecondaryPressed")
+                    : "the reset is reached by right-clicking the row";
         }
 
         // The rail's marker is the exception: a bar rather than a surface. Its COLOUR is now a
