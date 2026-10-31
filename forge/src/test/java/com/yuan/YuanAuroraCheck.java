@@ -419,6 +419,72 @@ public final class YuanAuroraCheck {
             // One handler for every kind of row, wrapped once, so no branch can forget it.
             assert rowSrc.contains("event.buttons.isSecondaryPressed")
                     : "the reset is reached by right-clicking the row";
+
+            // ---- two materials, switchable -----------------------------------------------------
+            // FROSTED and LIQUID_GLASS are different MATERIALS, not two strengths: one says much of
+            // the world comes through, the other says what it comes through. A player can want a
+            // strong frost or a barely-there pane of either kind, so they are separate choices.
+            String layoutSrc2 = Files.readString(Path.of(
+                    "src/main/java/com/yuan/client/aurora/AuroraLayout.java"));
+            assert layoutSrc2.contains("public enum MaterialMode {")
+                    && layoutSrc2.contains("FROSTED(\"液态模糊\")")
+                    && layoutSrc2.contains("LIQUID_GLASS(\"液态玻璃\")")
+                    : "the two materials must be a choice the player makes";
+            assert layoutSrc2.contains("public MaterialMode material = MaterialMode.FROSTED;")
+                    : "frosted must be the default: it is the cheaper pass and what existing configs look like";
+            // The refraction is its own shader: the blur smears the whole screen, the glass refracts
+            // inside a rectangle, and they share nothing but a tint.
+            String glassFsh = Files.readString(Path.of(
+                    "src/main/resources/assets/yuan/shaders/core/aurora_glass.fsh"));
+            assert glassFsh.contains("roundedBoxSdf")
+                    : "the refraction must follow the panel's own rounded shape, not its bounding box";
+            assert glassFsh.contains("pow(edge, 2.0)")
+                    : "the bend must be confined to the rim; a linear ramp warps the whole pane";
+            assert glassFsh.contains("discard")
+                    : "outside the rounded shape the quad must discard, or it is a rectangle of glass";
+            assert glassFsh.contains("Sampler0")
+                    : "the glass must sample the already-blurred backdrop";
+            // A shader that declares a uniform it never reads has that uniform dropped by GLSL 150,
+            // the Java lookup then returns null and the whole pass silently skips.
+            assert glassFsh.contains("ScreenTexelSize")
+                    : "the pixel-to-UV divisor must be declared and read";
+            String fxSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/client/aurora/AuroraFx.java"));
+            assert fxSrc.contains("public static boolean drawGlass(")
+                    : "the renderer must expose a per-panel glass draw";
+            assert fxSrc.contains("y0 = 1f - (yPx / screenH) * 2f")
+                    : "GL's Y grows upward while the layout's grows down; the flip is required";
+            // The composition publishes the rectangle; the renderer reads it. Only Compose knows
+            // where a panel is, and re-deriving it from the fractions would re-implement the layout.
+            String rectSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/GlassRects.kt"));
+            assert rectSrc.contains("fun add(") && rectSrc.contains("fun snapshot()")
+                    && rectSrc.contains("fun clear()")
+                    : "the panel rectangles must be published, read and rebuilt per frame";
+            // Read from the file the call actually lives in: `screenSrc` above is the OTHER screen.
+            String composeSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/AuroraComposeScreen.kt"));
+            assert composeSrc.contains("GlassRects.clear()")
+                    : "a rectangle that outlived its panel would leave glass with nothing behind it";
+            // In glass mode the panel must NOT paint its own background: the refraction is drawn
+            // before the composition, so a flat pane would cover the very thing it is made of.
+            String lookSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/AuroraLook.kt"));
+            assert lookSrc.contains("Color.Transparent")
+                    && lookSrc.contains("MaterialMode.LIQUID_GLASS")
+                    : "in glass mode the panel background must be transparent, or it hides the glass";
+            // The pass runs after the blur it samples and before the composition it sits under.
+            {
+                String code = stripComments(composeSrc);
+                int blur = code.indexOf("blurBackdrop(mc)");
+                int glass = code.indexOf("drawLiquidGlass(mc)");
+                assert blur >= 0 && glass > blur
+                        : "the glass must sample the blurred backdrop, so it runs after it";
+            }
+            // A Java enum field can be null after Gson reads a value that no longer exists.
+            assert composeSrc.contains("?: AuroraLayout.MaterialMode.FROSTED")
+                    && composeSrc.contains("?: AuroraLayout.GlassLevel.MEDIUM")
+                    : "reading these from a hand-edited file must not be able to crash";
         }
 
         // The rail's marker is the exception: a bar rather than a surface. Its COLOUR is now a

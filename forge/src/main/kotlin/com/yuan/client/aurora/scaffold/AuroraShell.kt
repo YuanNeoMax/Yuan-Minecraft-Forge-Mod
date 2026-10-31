@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.yuan.client.aurora.AuroraLayout
+import com.yuan.client.aurora.GlassRects
 import com.yuan.client.aurora.anim.openProgress
 import com.yuan.client.aurora.AuroraLook
 import com.yuan.client.aurora.LocalAuroraLayout
@@ -381,6 +382,11 @@ internal fun BoxScope.AuroraFloatingPanel(
         (stageHeight * densityValue).toInt().coerceAtLeast(1)
     )
 
+    // Resolved BEFORE the modifier chain, because `onGloballyPositioned` runs its lambda from the
+    // LAYOUT pass, which has no composition to read from -- reading the look or the density inside
+    // it is a compile error. The panel's corner radius does not change between layout passes anyway.
+    val glassRadiusPx = with(density) { panelLook.panelCorner.toPx() }
+
     AuroraWindowFrame(
         box = box,
         stage = stagePx,
@@ -399,6 +405,22 @@ internal fun BoxScope.AuroraFloatingPanel(
         Column(
             Modifier
                 .fillMaxSize()
+                // PUBLISH THIS PANEL'S RECTANGLE for the liquid-glass pass. See GlassRects: the
+                // renderer needs screen pixels and only the composition knows them.
+                //
+                // On the column rather than on the frame: this is the surface the eye reads as the
+                // panel, so it is the shape the glass must take.
+                .onGloballyPositioned { coordinates ->
+                    val topLeft = coordinates.positionInRoot()
+                    val size = coordinates.size
+                    GlassRects.add(
+                        x = topLeft.x,
+                        y = topLeft.y,
+                        w = size.width.toFloat(),
+                        h = size.height.toFloat(),
+                        radiusPx = glassRadiusPx
+                    )
+                }
                 .graphicsLayer {
                     shadowElevation = 18f
                     translationY = drag.parallaxY * layout.parallax * 4f

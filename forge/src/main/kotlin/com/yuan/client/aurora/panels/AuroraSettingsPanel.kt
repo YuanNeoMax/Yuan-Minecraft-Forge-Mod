@@ -71,6 +71,21 @@ internal fun AuroraSettingsPanel(
         // of the world shows through, and the blur slider decides how that world looks. Presenting
         // the blur first would invite tuning a value whose visible effect is set by the control
         // underneath it.
+        // MATERIAL BEFORE AMOUNT: what the surfaces are made of is the bigger question than how
+        // much of the world comes through them, and the second only means something once the first
+        // has been answered.
+        AuroraRow("液态材质", "磨砂全屏背景，或逐面板折射") {
+            AuroraSegments(
+                options = AuroraLayout.MaterialMode.values().map { it.ordinal },
+                selected = layout.look.material.ordinal,
+                onSelect = {
+                    layout.look.material = AuroraLayout.MaterialMode.values()[it]
+                    onChanged()
+                },
+                label = { AuroraLayout.MaterialMode.values()[it].label },
+                width = CONTROL_WIDTH
+            )
+        }
         AuroraRow("玻璃材质", "面板的通透程度；与背景模糊配合生效") {
             AuroraSegments(
                 options = AuroraLayout.GlassLevel.values().map { it.ordinal },

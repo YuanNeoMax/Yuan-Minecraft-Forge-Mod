@@ -94,8 +94,26 @@ internal class AuroraLook(private val layout: AuroraLayout) {
 
     // ---- panel ----
     val panelCorner: Dp @Composable get() = look().panelCorner.dp
-    /** The panel surface, with its alpha taken from the glass preset. See [glassAlpha]. */
-    val panelBg: Color @Composable get() = glassAlpha(look().panelBg, look().glass.panelAlpha)
+    /**
+     * The panel surface.
+     *
+     * <p>IN LIQUID-GLASS MODE THIS IS FULLY TRANSPARENT, and that is not a shortcut for the glass --
+     * it is the only way the glass can be seen. The refraction is drawn into the framebuffer BEFORE
+     * the composition (see the screen's drawLiquidGlass), so a panel that also painted its own
+     * background would cover it with a flat pane and the entire pass would be invisible work.
+     *
+     * <p>The panel is still a surface in that mode: its border, its header and every row paint over
+     * the glass, which together with the refraction and its lit rim is what makes it read as a pane
+     * of glass rather than as a hole in the window.
+     *
+     * <p>FROSTED keeps the translucent fill, because there the flat pane IS the material.
+     */
+    val panelBg: Color @Composable get() =
+        if ((look().material ?: AuroraLayout.MaterialMode.FROSTED) == AuroraLayout.MaterialMode.LIQUID_GLASS) {
+            Color.Transparent
+        } else {
+            glassAlpha(look().panelBg, (look().glass ?: AuroraLayout.GlassLevel.MEDIUM).panelAlpha)
+        }
     val panelBorderColor: Color @Composable get() = Color(look().panelBorderColor)
     val panelBorderWidth: Dp @Composable get() = look().panelBorderWidth.dp
     val panelHeaderHeight: Dp @Composable get() = look().panelHeaderHeight.dp
@@ -108,8 +126,8 @@ internal class AuroraLook(private val layout: AuroraLayout) {
     // ---- shell ----
     val shellInset: Dp @Composable get() = look().shellInset.dp
     val shellCorner: Dp @Composable get() = look().shellCorner.dp
-    val shellBgTop: Color @Composable get() = glassAlpha(look().shellBgTop, look().glass.shellAlpha)
-    val shellBgBottom: Color @Composable get() = glassAlpha(look().shellBgBottom, look().glass.shellAlpha)
+    val shellBgTop: Color @Composable get() = glassAlpha(look().shellBgTop, (look().glass ?: AuroraLayout.GlassLevel.MEDIUM).shellAlpha)
+    val shellBgBottom: Color @Composable get() = glassAlpha(look().shellBgBottom, (look().glass ?: AuroraLayout.GlassLevel.MEDIUM).shellAlpha)
     val shellBorderColor: Color @Composable get() = Color(look().shellBorderColor)
     val shellBorderWidth: Dp @Composable get() = look().shellBorderWidth.dp
     val headerHeight: Dp @Composable get() = look().headerHeight.dp

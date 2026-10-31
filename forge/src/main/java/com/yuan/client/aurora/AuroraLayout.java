@@ -502,6 +502,35 @@ public final class AuroraLayout {
         }
     }
 
+    /**
+     * Which material the window's surfaces are made of.
+     *
+     * <p>TWO MATERIALS, NOT TWO STRENGTHS. {@link GlassLevel} says HOW MUCH of the world shows
+     * through; this says WHAT is showing it through. They are independent questions, and a player
+     * can reasonably want a strong frost or a barely-there pane of either kind.
+     *
+     * <p>FROSTED is one full-screen blur composited flat across the backdrop: every pixel behind the
+     * window is smeared by the same amount, and the surfaces are translucent panes in front of it.
+     * It reads as fog, and it is cheap -- one shader, four passes, no per-panel work.
+     *
+     * <p>LIQUID_GLASS refracts INSIDE each panel: the image is displaced by an amount that grows
+     * toward the panel's rim, following its corner radius, plus a lit highlight along the bevel.
+     * That is what makes a pane look thick, and it is per-panel work -- one draw per panel, each with
+     * its own uniforms.
+     */
+    public enum MaterialMode {
+        /** One screen-wide blur behind translucent surfaces. */
+        FROSTED("液态模糊"),
+        /** Per-panel refraction with a lit rim. */
+        LIQUID_GLASS("液态玻璃");
+
+        public final String label;
+
+        MaterialMode(String label) {
+            this.label = label;
+        }
+    }
+
     /** The glass presets. {@link #shellAlpha} and {@link #panelAlpha} are the numbers each one sets. */
     public enum GlassLevel {
         /** Opaque: the world is fully hidden. The pre-glass look, kept for readability. */
@@ -550,6 +579,36 @@ public final class AuroraLayout {
      * the blur, and their borders are lit (see {@code Star.glassEdge}).
      */
     public GlassLevel glass = GlassLevel.MEDIUM;
+
+    /**
+     * Which material the surfaces are made of.
+     *
+     * <p>INDEPENDENT OF {@link #glass}. That one says HOW MUCH of the world shows through; this says
+     * WHAT is showing it through. A player can reasonably want a strong frost or a barely-there pane
+     * of either kind, so the two are separate choices rather than one list of combinations.
+     *
+     * <p>FROSTED is one full-screen blur composited flat across the backdrop, with translucent panes
+     * in front of it: it reads as fog, and it is cheap -- a shader, four passes, no per-panel work.
+     *
+     * <p>LIQUID_GLASS refracts INSIDE each panel: the image behind is displaced by an amount that
+     * grows toward the rim, following the panel's own corner radius, with a lit highlight along the
+     * bevel. That is what makes a pane look thick, and it costs one draw per panel.
+     */
+    public MaterialMode material = MaterialMode.FROSTED;
+
+    /**
+     * Where each floating panel sits on screen, in ROOT-space pixels.
+     *
+     * <p>PUBLISHED BY THE COMPOSITION, READ BY THE RENDERER. The glass pass needs a panel's rectangle
+     * in SCREEN pixels, and only Compose knows it: a panel's box is a fraction of the content stage,
+     * which is itself positioned by the shell, so recovering an absolute rectangle from the
+     * fractions would mean re-deriving the whole layout outside the layout. Compose can report the
+     * answer directly with positionInRoot, so it does, and the renderer reads it.
+     *
+     * <p>Each entry is {x, y, w, h, radiusPx}. Rebuilt every composition; never persisted -- a stale
+     * rectangle from a previous session would refract the wrong part of the screen.
+     */
+    public transient java.util.List<float[]> glassRects = new java.util.ArrayList<>();
 
         /** Height of one rail entry, in dp. */
         public float railItemHeight = 36f;

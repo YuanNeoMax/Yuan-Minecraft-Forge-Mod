@@ -206,7 +206,11 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
 
         // The backdrop goes down first: it reads the main target and writes it back blurred and
         // dimmed, so it must run before anything else touches that target this frame.
+        // Rebuilt every frame: each live panel registers itself again during the composition, so an
+        // entry that outlived its panel cannot leave a piece of glass behind with nothing in it.
+        GlassRects.clear()
         blurBackdrop(mc)
+        drawLiquidGlass(mc)
 
         val ctx = skiaContext ?: return
         val surf = surface ?: return
@@ -238,6 +242,51 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
      * or a compile error. Text over the raw world would be unreadable, and the card fills are
      * translucent, so a fill is the honest degradation rather than glass over an unblurred world.
      */
+    /**
+     * Draws the liquid-glass pass, one quad per panel, over the blurred backdrop.
+     *
+     * <p>RUNS AFTER [blurBackdrop] because it samples what that pass left behind: the blurred world
+     * is already in the main target, so the glass refracts a soft image. Refracting the sharp world
+     * would double its edges, and doubled edges read as a rendering fault rather than as glass.
+     *
+     * <p>RUNS BEFORE the composition, so the panels' contents land ON the glass. In this mode a panel
+     * stops painting its own background (see the material branch in AuroraLook), or the flat pane
+     * would simply cover the refraction it is supposed to be made of.
+     *
+     * <p>ONLY PANELS ARE GLASSED. The shell is the window itself; refracting it would put the effect
+     * under the rail and the rows too, and there would be nothing for a panel to be a separate
+     * surface against.
+     */
+    private fun drawLiquidGlass(mc: Minecraft) {
+        // Null-safe reads: these are Java fields, and Gson leaves an enum it cannot resolve as null
+        // rather than failing the load. A hand-edited aurora.json naming a value that no longer
+        // exists would otherwise crash on the first frame the window opened.
+        val material = layout.look.material ?: AuroraLayout.MaterialMode.FROSTED
+        if (material != AuroraLayout.MaterialMode.LIQUID_GLASS) return
+        val main = mc.mainRenderTarget ?: return
+        val level = layout.look.glass ?: AuroraLayout.GlassLevel.MEDIUM
+        // Nothing to show through: an opaque pane refracts nothing, so the pass is skipped rather
+        // than run and then multiplied away.
+        if (level.panelAlpha >= 0.999f) return
+
+        // Strength scales with the preset, as the blur does: a barely-there pane must not get the
+        // deep displacement of a thick slab, or it stops reading as a thinner material.
+        val strengthPx = GLASS_REFRACT_PX * level.blur
+        val rim = GLASS_RIM * level.blur
+        val tintAlpha = 1f - level.panelAlpha
+
+        GlassRects.snapshot().forEach { r ->
+            AuroraFx.drawGlass(
+                main,
+                r[0], r[1], r[2], r[3],
+                r[4],
+                strengthPx,
+                rim,
+                tintAlpha
+            )
+        }
+    }
+
     private fun blurBackdrop(mc: Minecraft) {
         val main = mc.mainRenderTarget ?: return
         // THE GLASS PRESET SCALES THE BLUR, and that coupling is the point of having a preset at all.
@@ -800,3 +849,13 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
         }
     }
 }
+
+/** How far the image is displaced at a panel's rim, in pixels, at full glass strength.
+ *
+ * <p>Named rather than inlined because it is the whole difference between glass and a wobbling
+ * picture: at this displacement the rim visibly magnifies the backdrop while the middle stays
+ * optically flat, which is what a thick pane does. */
+private const val GLASS_REFRACT_PX = 14f
+
+/** Rim highlight strength at full glass strength. Deliberately low: a bright line reads as a border. */
+private const val GLASS_RIM = 0.13f

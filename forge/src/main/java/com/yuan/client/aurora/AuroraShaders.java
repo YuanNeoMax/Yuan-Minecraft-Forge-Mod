@@ -71,6 +71,74 @@ public final class AuroraShaders {
         uColorModulator.set(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
+    // ---- the glass pass ------------------------------------------------------------------------
+
+    public static CCShaderInstance glassShader;
+
+    private static CCUniform uGlass;
+    private static CCUniform uGlassTint;
+    private static CCUniform uGlassSize;
+    private static CCUniform uGlassTexel;
+
+    // Values the glass apply callback pushes. One panel is drawn per call, so these describe the
+    // quad currently being drawn and are re-set before each one.
+    private static final float[] GLASS = new float[4];
+    private static final float[] GLASS_TINT = new float[4];
+    private static final float[] GLASS_SIZE = new float[2];
+    private static final float[] GLASS_TEXEL = new float[2];
+
+    /** The compiled glass shader, or null until shaders are registered. */
+    public static CCShaderInstance getGlassShader() {
+        return glassShader;
+    }
+
+    /**
+     * True once the glass shader is registered and every uniform resolved.
+     *
+     * <p>Checked separately from {@link #ready()}: the two passes are independent, and a glass
+     * failure must not disable the backdrop blur -- the window is perfectly usable with a blurred
+     * background and no refraction, but not with neither.
+     */
+    public static boolean glassReady() {
+        return glassShader != null && uGlass != null && uGlassTint != null
+                && uGlassSize != null && uGlassTexel != null;
+    }
+
+    /**
+     * Records the parameters for the next glass draw.
+     *
+     * @param radiusPx   the panel's corner radius, so the refraction follows its own shape
+     * @param strengthPx how far the image is displaced at the rim, in pixels
+     * @param rim        rim highlight strength
+     * @param shellAlpha the glass tint's alpha: how much the surface darkens what it refracts
+     */
+    public static void setGlassPass(float radiusPx, float strengthPx, float rim, float shellAlpha,
+                                    float quadW, float quadH, float screenW, float screenH) {
+        GLASS[0] = radiusPx;
+        GLASS[1] = strengthPx;
+        GLASS[2] = rim;
+        GLASS[3] = 0f;
+        GLASS_TINT[0] = 1f;
+        GLASS_TINT[1] = 1f;
+        GLASS_TINT[2] = 1f;
+        GLASS_TINT[3] = shellAlpha;
+        GLASS_SIZE[0] = Math.max(1f, quadW);
+        GLASS_SIZE[1] = Math.max(1f, quadH);
+        GLASS_TEXEL[0] = screenW > 0f ? 1f / screenW : 0f;
+        GLASS_TEXEL[1] = screenH > 0f ? 1f / screenH : 0f;
+    }
+
+    private static void pushGlassUniforms() {
+        if (uGlass == null) {
+            return;
+        }
+        uGlass.set(GLASS[0], GLASS[1], GLASS[2], GLASS[3]);
+        uGlassTint.set(GLASS_TINT[0], GLASS_TINT[1], GLASS_TINT[2], GLASS_TINT[3]);
+        uGlassSize.set(GLASS_SIZE[0], GLASS_SIZE[1]);
+        uGlassTexel.set(GLASS_TEXEL[0], GLASS_TEXEL[1]);
+        uColorModulator.set(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
     @SubscribeEvent
     public static void registerShaders(RegisterShadersEvent event) throws IOException {
         event.registerShader(
@@ -90,6 +158,27 @@ public final class AuroraShaders {
                     LOGGER.info("aurora blur shader registered (uniforms resolved: "
                                     + "dir={} tint={} colorModulator={})",
                             uDir != null, uTint != null, uColorModulator != null);
+                });
+
+        // THE GLASS PASS. A second shader rather than a mode inside the first: the two do different
+        // jobs (one smears the whole screen, the other refracts inside a rectangle) and share no
+        // uniforms beyond the tint. Folding them together would mean branching in the fragment stage
+        // and carrying the blur's ping-pong state through a pass that does not use it.
+        event.registerShader(
+                CCShaderInstance.create(event.getResourceProvider(),
+                        ResourceLocation.fromNamespaceAndPath("yuan", "aurora_glass"),
+                        DefaultVertexFormat.POSITION_TEX),
+                shader -> {
+                    glassShader = (CCShaderInstance) shader;
+                    uGlass = glassShader.getUniform("Glass");
+                    uGlassTint = glassShader.getUniform("Tint");
+                    uGlassSize = glassShader.getUniform("QuadSizePx");
+                    uGlassTexel = glassShader.getUniform("ScreenTexelSize");
+                    glassShader.onApply(AuroraShaders::pushGlassUniforms);
+
+                    LOGGER.info("aurora glass shader registered (uniforms resolved: "
+                                    + "glass={} tint={} size={} texel={})",
+                            uGlass != null, uGlassTint != null, uGlassSize != null, uGlassTexel != null);
                 });
     }
 }

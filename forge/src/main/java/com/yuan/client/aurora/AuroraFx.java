@@ -198,4 +198,99 @@ public final class AuroraFx {
         }
         return triangleBuffer;
     }
+
+    private static VertexBuffer quadBuffer;
+
+    private static VertexBuffer quadBuffer() {
+        if (quadBuffer == null) {
+            quadBuffer = new VertexBuffer(VertexBuffer.Usage.DYNAMIC);
+        }
+        return quadBuffer;
+    }
+
+    /**
+     * Draws the liquid-glass pass for one panel.
+     *
+     * <p>RUNS AFTER {@link #apply}, and samples what that pass left behind: the blurred backdrop is
+     * already in {@code main}'s colour texture, so the glass refracts a soft image rather than the
+     * raw world. Sampling the sharp world through a strong displacement would show its edges as
+     * doubled lines, which reads as a rendering fault instead of as glass.
+     *
+     * <p>The quad is emitted in CLIP space, like the blur's triangle -- the shader's matrices stay
+     * identity no-ops -- but its vertices are placed from the panel's rectangle rather than covering
+     * the screen, and its UVs carry both the screen position (for sampling) and the quad-relative
+     * position (for the rounded shape and the rim).
+     *
+     * <p>Callers pass PIXELS with the origin at the window's TOP-LEFT, which is how the layout stores
+     * a panel's box; the clip conversion happens here so no caller has to think in GL's bottom-up
+     * coordinates.
+     *
+     * @return true when the panel was drawn.
+     */
+    public static boolean drawGlass(RenderTarget main,
+                                    float xPx, float yPx, float wPx, float hPx,
+                                    float radiusPx, float strengthPx, float rim, float tintAlpha) {
+        if (main == null || main.width <= 0 || main.height <= 0) {
+            return false;
+        }
+        if (!AuroraShaders.glassReady() || main.getColorTextureId() == 0) {
+            return false;
+        }
+        if (wPx < 2f || hPx < 2f) {
+            return false;
+        }
+
+        float screenW = main.width;
+        float screenH = main.height;
+
+        // Clip space spans -1..1, and GL's Y grows upward while the layout's grows down: the Y
+        // conversion flips as it scales.
+        float x0 = (xPx / screenW) * 2f - 1f;
+        float x1 = ((xPx + wPx) / screenW) * 2f - 1f;
+        float y0 = 1f - (yPx / screenH) * 2f;
+        float y1 = 1f - ((yPx + hPx) / screenH) * 2f;
+
+        // Screen UVs for the two corners, so the fragment stage can sample the backdrop where the
+        // panel actually is.
+        float u0 = xPx / screenW;
+        float u1 = (xPx + wPx) / screenW;
+        float v0 = yPx / screenH;
+        float v1 = (yPx + hPx) / screenH;
+
+        AuroraShaders.setGlassPass(radiusPx, strengthPx, rim, tintAlpha, wPx, hPx, screenW, screenH);
+
+        RenderSystem.setShader(AuroraShaders::getGlassShader);
+        AuroraRenderState.apply();
+        try {
+            main.bindWrite(true);
+            RenderSystem.setShaderTexture(0, main.getColorTextureId());
+
+            BufferBuilder bb = builder();
+            bb.begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_TEX);
+            // Two triangles, wound to face the viewer. The quad-relative UV is the same value as the
+            // screen UV here because the quad IS the panel: the fragment stage recovers "where am I
+            // inside the panel" by scaling the 0..1 UV by QuadSizePx, which keeps the shader free of
+            // a second attribute.
+            quadVertex(bb, x0, y0, u0, v0);
+            quadVertex(bb, x0, y1, u0, v1);
+            quadVertex(bb, x1, y1, u1, v1);
+
+            quadVertex(bb, x0, y0, u0, v0);
+            quadVertex(bb, x1, y1, u1, v1);
+            quadVertex(bb, x1, y0, u1, v0);
+
+            VertexBuffer vb = quadBuffer();
+            vb.bind();
+            vb.upload(bb.end());
+            vb.drawWithShader(IDENTITY, IDENTITY, AuroraShaders.getGlassShader());
+            VertexBuffer.unbind();
+        } finally {
+            AuroraRenderState.restore();
+        }
+        return true;
+    }
+
+    private static void quadVertex(BufferBuilder bb, float x, float y, float u, float v) {
+        bb.vertex(x, y, 0f).uv(u, v).endVertex();
+    }
 }
