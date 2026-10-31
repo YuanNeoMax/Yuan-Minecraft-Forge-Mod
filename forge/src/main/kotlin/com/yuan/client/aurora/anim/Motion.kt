@@ -217,9 +217,15 @@ internal fun EnterBlock(
  * subtree for each of those frames.
  *
  * @param key identifies the surface, so two panels animating at once each get their own ramp.
+ * @param durationMs how long the ramp takes. Defaults to the window's own open timing; a caller
+ *   passes a shorter one when the surface is small enough that the full duration reads as slow.
  */
 @Composable
-internal fun openProgress(key: Any, shown: Boolean = true): State<Float> {
+internal fun openProgress(
+    key: Any,
+    shown: Boolean = true,
+    durationMs: Int = Motion.WINDOW_MS
+): State<Float> {
     // At OFF there is nothing to animate and the surface must simply be in its final state.
     if (!Motion.animated) {
         return remember(key, shown) { mutableStateOf(if (shown) 1f else 0f) }
@@ -228,7 +234,7 @@ internal fun openProgress(key: Any, shown: Boolean = true): State<Float> {
     LaunchedEffect(key, shown) {
         anim.animateTo(
             targetValue = if (shown) 1f else 0f,
-            animationSpec = tween(Motion.dur(Motion.WINDOW_MS), easing = Motion.enter)
+            animationSpec = tween(Motion.dur(durationMs), easing = Motion.enter)
         )
     }
     return anim.asState()

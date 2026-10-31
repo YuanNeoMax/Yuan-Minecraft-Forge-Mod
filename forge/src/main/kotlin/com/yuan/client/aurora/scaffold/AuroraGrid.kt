@@ -174,6 +174,10 @@ internal fun AuroraRail(
      */
     onOpenEntryMenu: (moduleId: String, sectionId: String) -> Unit,
     onMoved: () -> Unit,
+    /** The entries pinned to the top, in pin order. See AuroraLayout.pinnedModules. */
+    pinned: List<String> = emptyList(),
+    /** Toggles one entry's pin. Called by the star in the row. */
+    onTogglePin: (String) -> Unit = {},
     /**
      * The keyboard focus model.
      *
@@ -199,9 +203,28 @@ internal fun AuroraRail(
     val offsetXPx = with(density) { railOffsetX.toPx() }
     val offsetYPx = with(density) { railOffsetY.toPx() }
 
+    // PINNED FIRST, in pin order, then everything else in its stored order.
+    //
+    // Inside the sections rather than as a separate group at the top: a pin moves an entry UP within
+    // the list the player already knows, which is what "keep this handy" means. Hoisting pins into
+    // their own region would restructure the rail every time one was toggled, and the entry the
+    // player was looking at would jump somewhere else entirely.
+    //
+    // `sortedBy` on a stable sort keeps the unpinned entries in their stored relative order, so
+    // toggling one pin cannot reshuffle the rest.
+    val pinnedSet = pinned.toSet()
+    val sortedSections = sections.map { section ->
+        section.copy(
+            entries = section.entries.sortedBy { entry ->
+                val at = pinned.indexOf(entry.id)
+                if (at >= 0) at else Int.MAX_VALUE
+            }
+        )
+    }
+
     // The flat draw order. The drag maths needs one index space rather than one per section, or a drag
     // crossing a boundary would compute its target inside the wrong list and land nowhere.
-    val flat = sections.flatMap { it.entries }
+    val flat = sortedSections.flatMap { it.entries }
 
     Column(
         Modifier
@@ -226,7 +249,9 @@ internal fun AuroraRail(
         )
 
         var flatIndex = -1
-        sections.forEach { section ->
+        // The SORTED list: what is drawn must be what `flat` measured, or the drag maths would
+        // compute its target against a different order than the one on screen.
+        sortedSections.forEach { section ->
             SectionHeader(
                 section = section,
                 look = look,
@@ -418,14 +443,35 @@ internal fun AuroraRail(
                         maxLines = 1
                     )
                     Spacer(Modifier.weight(1f))
-                    // The grip states that the entry is movable. Its presence is not the
-                    // affordance -- the long-press drag is -- but a row that reorders without
-                    // saying so reads as a list that changed on its own.
-                    AuroraIcon(
-                        AuroraIcon.Grip,
-                        tint = Star.textTertiary,
-                        modifier = Modifier.size(IconSize.inline)
-                    )
+                    // THE PIN, and it REPLACES the grip rather than sitting beside it.
+                    //
+                    // A row already spends its right end on one mark, and a pinned entry is the one
+                    // case where "you can drag me" is not the most useful thing to say -- the player
+                    // has just told the rail where they want it, and the star is the state they set.
+                    // Two small glyphs side by side would be a third of the row's width spent on
+                    // symbols, on a column whose whole design is one word per line.
+                    //
+                    // Always clickable, never hidden behind a hover: an affordance that only appears
+                    // under the pointer cannot be discovered by someone who does not already know it
+                    // is there, and pinning is a thing a player has to learn exists.
+                    val isPinned = entry.id in pinnedSet
+                    Box(
+                        Modifier
+                            .size(IconSize.inline)
+                            .clip(RoundedCornerShape(3.dp))
+                            .handCursor()
+                            .clickable(
+                                interactionSource = remember(entry.id) { MutableInteractionSource() },
+                                indication = null
+                            ) { onTogglePin(entry.id) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AuroraIcon(
+                            if (isPinned) AuroraIcon.Pin else AuroraIcon.Grip,
+                            tint = if (isPinned) Star.accent else Star.textTertiary,
+                            modifier = Modifier.size(IconSize.inline)
+                        )
+                    }
                 }
             }
         }

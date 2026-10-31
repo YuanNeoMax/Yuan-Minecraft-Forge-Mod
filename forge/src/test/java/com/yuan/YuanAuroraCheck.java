@@ -315,9 +315,12 @@ public final class YuanAuroraCheck {
             assert grid.contains("selected -> selectedPlate")
                     : "the selected plate must switch immediately";
 
-            // The panel's dismissal is the mirror of its entrance.
-            assert motion.contains("internal fun openProgress(key: Any, shown: Boolean = true)")
-                    : "the surface ramp must run in both directions";
+            // The panel's dismissal is the mirror of its entrance, and the ramp now takes its own
+            // duration so a small surface can leave faster than the window it sits in.
+            assert motion.contains("internal fun openProgress(")
+                    && motion.contains("shown: Boolean = true,")
+                    && motion.contains("durationMs: Int = Motion.WINDOW_MS")
+                    : "the surface ramp must run both ways, with a caller-chosen duration";
             assert motion.contains("if (shown) 1f else 0f")
                     : "the ramp must drive toward the shown/hidden target";
             assert shell.contains("dismissing: Boolean = false")
@@ -485,6 +488,56 @@ public final class YuanAuroraCheck {
             assert composeSrc.contains("?: AuroraLayout.MaterialMode.FROSTED")
                     && composeSrc.contains("?: AuroraLayout.GlassLevel.MEDIUM")
                     : "reading these from a hand-edited file must not be able to crash";
+
+            // ---- C-7: pinned entries ----------------------------------------------------------
+            // Ids rather than positions: the rail can be reordered and a module can be added later,
+            // and a stored index would then point at whatever slid into that slot.
+            assert layoutSrc2.contains("public java.util.Set<String> pinnedModules")
+                    : "pins must be stored by id, not by position";
+            // The null guard belongs at the READ, in Kotlin: Gson leaves a field null when the file
+            // predates it, and a guard inside the Java model means guessing which of that file's
+            // several methods owns the field -- getting it wrong compiles to "cannot find symbol"
+            // against the outer class, which is what happened here twice.
+            assert screenSrc.contains("layout.look.pinnedModules ?: emptySet()")
+                    : "a missing set must degrade to no pins, not throw while drawing the rail";
+            // ONE collection answers both "is this pinned" and "which pin is first": a set plus a
+            // separate order list would be two places for the pins to live.
+            assert grid.contains("val pinnedSet = pinned.toSet()")
+                    : "membership and order must come from the same list";
+            // Pins move an entry UP within the list the player knows, rather than hoisting it into a
+            // separate region -- which would restructure the rail every time one was toggled.
+            assert grid.contains("section.entries.sortedBy { entry ->")
+                    : "pinning must reorder inside the section, not restructure the rail";
+            // What is DRAWN must be what the drag maths measured, or a drag lands at the wrong index.
+            assert grid.contains("sortedSections.forEach { section ->")
+                    && grid.contains("val flat = sortedSections.flatMap")
+                    : "the drawn order and the measured order must be the same list";
+            assert screenSrc.contains("layout.look.pinnedModules") || screenSrc.contains("pinnedModules")
+                    : "the screen must read and write the pins";
+            assert screenSrc.contains("layout.save()")
+                    : "a pin is arrangement data and must persist";
+            // The pin shares the row's right end with the grip rather than sitting beside it: two
+            // glyphs would spend a third of the row on symbols.
+            assert !grid.contains("AuroraIcon.Grip,\n                        tint = Star.textTertiary,\n                        modifier = Modifier.size(IconSize.inline)\n                    )\n                    Box")
+                    : "the pin must replace the grip, not stack beside it";
+
+            // ---- the window's own entrance and exit -------------------------------------------
+            // `requestClose()` is synchronous: Minecraft tears the screen down inside the call, so an
+            // exit animation has to finish BEFORE it, not during. Closing therefore takes two steps.
+            assert screenSrc.contains("var closing by remember { mutableStateOf(false) }")
+                    : "the window needs a closing state to animate out through";
+            assert screenSrc.contains("val beginClose = {")
+                    : "every close path must go through one wrapper";
+            assert screenSrc.contains("LaunchedEffect(closing)")
+                    : "the handover to requestClose must wait for the animation";
+            // ONE wrapper: the close button, the confirm dialog and the ESC hatch used to call
+            // requestClose directly, which left the ESC path as the only one that slammed shut.
+            assert !screenSrc.contains("dirty = false\n                            requestClose()")
+                    : "the confirm dialog must animate out too";
+            // The window's fade must be read in a DRAW phase: a composition-phase read would
+            // recompose the whole window on every frame of the fade.
+            assert screenSrc.contains("val a = windowAppear.value")
+                    : "the window fade must be read inside graphicsLayer";
         }
 
         // The rail's marker is the exception: a bar rather than a surface. Its COLOUR is now a
@@ -640,8 +693,10 @@ public final class YuanAuroraCheck {
                 : "the ramp must start at the end it is not at; animate*AsState(target) never runs";
         assert motion.contains("targetValue = if (shown) 1f else 0f")
                 : "the ramp must drive toward the shown/hidden target, so dismissal mirrors entrance";
-        assert motion.contains("animationSpec = tween(Motion.dur(Motion.WINDOW_MS)")
-                : "the surface ramp must be gated through Motion.dur";
+        // Gated through `dur` with the DURATION AS A PARAMETER: the window's own exit needs the full
+        // window timing, while a small surface reads as slow at that length and passes a shorter one.
+        assert motion.contains("animationSpec = tween(Motion.dur(durationMs)")
+                : "the surface ramp must be gated through Motion.dur, at the caller's duration";
         assert motion.contains("if (!Motion.animated)")
                 : "at OFF the entrance must collapse to complete, not animate";
         // Its one consumer, and the only legal place to read it: a draw phase.

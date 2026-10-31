@@ -597,6 +597,18 @@ public final class AuroraLayout {
     public MaterialMode material = MaterialMode.FROSTED;
 
     /**
+     * The rail entries the player has pinned to the top.
+     *
+     * <p>IDS, not positions: the rail can be reordered, and a module can be added in a later version,
+     * so a stored INDEX would end up pointing at whatever slid into that slot. Ids survive both.
+     *
+     * <p>ONE LinkedHashSet, used for two questions -- "is this pinned" and "which pinned one comes
+     * first". A set for membership plus a separate list for order would be two places for the pins to
+     * live, and the rail would rearrange itself the first time one was edited without the other.
+     */
+    public java.util.Set<String> pinnedModules = new java.util.LinkedHashSet<>();
+
+    /**
      * Where each floating panel sits on screen, in ROOT-space pixels.
      *
      * <p>PUBLISHED BY THE COMPOSITION, READ BY THE RENDERER. The glass pass needs a panel's rectangle

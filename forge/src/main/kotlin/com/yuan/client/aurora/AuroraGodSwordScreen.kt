@@ -18,6 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+import com.yuan.client.aurora.anim.openProgress
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -157,6 +159,45 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
         var dirty by remember { mutableStateOf(false) }
         var confirming by remember { mutableStateOf(false) }
 
+        // THE WINDOW'S OWN EXIT.
+        //
+        // `requestClose()` is synchronous -- Minecraft tears the screen down inside the call -- so an
+        // exit animation has to happen BEFORE it, not during. Closing therefore takes two steps: set
+        // `closing`, let the window animate out, and only then hand over to the screen.
+        //
+        // ONE WRAPPER FOR EVERY PATH. The close button, the confirm dialog and the ESC hatch all used
+        // to call requestClose directly; routing them through here is what makes "close" mean the same
+        // thing wherever it is asked for. Adding the animation at each call site would have left the
+        // ESC path -- the one a player reaches for when something feels stuck -- as the only one that
+        // slammed the window shut.
+        var closing by remember { mutableStateOf(false) }
+        // True while the window is arriving, and false once its exit begins.
+        //
+        // Below FULL this still runs: unlike the staged row entrances -- which are dropped entirely
+        // when motion is reduced -- this one is the WINDOW itself appearing, and a window that pops
+        // into existence is the jump cut the rest of this work removed. It shares the surface ramp
+        // with the panels, so the whole window and everything in it leave together.
+        val windowAppear = openProgress(
+            key = "window",
+            shown = !closing,
+            durationMs = Motion.WINDOW_MS
+        )
+        val beginClose = {
+            if (closing) {
+                // Already on the way out: a second press must not restart the animation or call
+                // requestClose twice, which would tear the screen down mid-fade.
+                Unit
+            } else {
+                closing = true
+            }
+        }
+        LaunchedEffect(closing) {
+            if (closing) {
+                delay((Motion.dur(Motion.WINDOW_MS) + 40).toLong())
+                requestClose()
+            }
+        }
+
         // Any edit through the binding marks the window dirty. The flag is read by the footer and by
         // the ESC path; it is deliberately not a per-row comparison, which would cost a full config
         // diff on every frame.
@@ -214,6 +255,12 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
         // The rail's sections, resolved against the player's stored arrangement. The declared sections
         // are handed in on every pass rather than remembered: a module added in a later version must
         // appear, and `sectionsOrDefault` is what appends it without disturbing what is already placed.
+        // PINNED ENTRIES MOVE TO THE TOP, in the order they were pinned.
+        //
+        // Applied here rather than inside the rail because the ORDER IS STORED STATE, not a view
+        // preference: `sectionsOrDefault` returns the player's arrangement, and a pinned entry must
+        // come back pinned after a reopen. Sorting in the rail would be re-derived on every draw and
+        // would disagree with what a drag writes back.
         val railSections = remember(revision) {
             layout.sectionsOrDefault(GodSwordModules.declaredSections()).map { section ->
                 RailSection(
@@ -365,6 +412,24 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
                 // A mouse move puts the focus ring away: the keyboard is no longer the input in use.
                 // Applied at the root so it rides the hit path rather than competing for it.
                 .clearFocusOnPointer(focus)
+                // THE WINDOW'S ARRIVAL AND DEPARTURE, on the whole stage.
+                //
+                // One `alpha` drives both directions, so the exit is the mirror of the entrance
+                // rather than a second animation that has to be kept in step with it.
+                //
+                // A slight scale accompanies the fade: at 0.985 -> 1.0 the window reads as settling
+                // forward rather than as a rectangle being turned up and down. Any larger and the
+                // rail's text visibly reflows as it scales, which is worse than no animation.
+                //
+                // The fade is read in `graphicsLayer`, in the DRAW phase. A composition-phase read
+                // would recompose the entire window -- rail, content and every open panel -- on each
+                // frame of the fade, for an effect that only changes pixels.
+                .graphicsLayer {
+                    val a = windowAppear.value
+                    alpha = a
+                    scaleX = 0.985f + 0.015f * a
+                    scaleY = 0.985f + 0.015f * a
+                }
         ) {
         AuroraShell(
             title = "鏄熸笂",
@@ -391,7 +456,7 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
                         if (dirty && !confirming) {
                             confirming = true
                         } else {
-                            requestClose()
+                            beginClose()
                         }
                     }
                 )
@@ -436,6 +501,23 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
                             // Committed on release rather than per frame: a drag writes dozens of times
                             // a second and a file write per frame would turn the drag into a stutter.
                             onMoved = { touchLayout() },
+                            // Null-safe: Gson leaves a field null when the file predates it, and a
+                            // hand-edited file can hold anything. The guard belongs HERE, at the
+                            // read -- putting it in the Java model means guessing which of that
+                            // file's several methods owns the field, and getting it wrong compiles
+                            // into an "cannot find symbol" against the outer class instead.
+                            pinned = (layout.look.pinnedModules ?: emptySet()).toList(),
+                            onTogglePin = { id ->
+                                // Toggle and persist. A pin is arrangement data, so it is saved with
+                                // the rest of the layout rather than living only for this session --
+                                // a player who pinned their four most-used features expects them back.
+                                val pins = layout.look.pinnedModules
+                                if (pins != null) {
+                                    if (!pins.remove(id)) pins.add(id)
+                                    layout.save()
+                                    touchLayout()
+                                }
+                            },
                             focus = focus
                         )
                     }
@@ -735,11 +817,11 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
                 onSaveClose = {
                     saveConfig()
                     dirty = false
-                    requestClose()
+                    beginClose()
                 },
                 onDiscardClose = {
                     discardPreview()
-                    requestClose()
+                    beginClose()
                 },
                 onKeepEditing = { confirming = false }
             )
