@@ -116,6 +116,22 @@ internal object AuroraKeys {
     const val ESCAPE = 256
     const val KP_ENTER = 335
 
+    /** `Z` and `Y`, for the undo/redo shortcut. */
+    const val Z = 90
+    const val Y = 89
+
+    /**
+     * GLFW's Ctrl bit.
+     *
+     * <p>GLFW reports modifiers as a bitfield, and the host forwards it verbatim. The constant lives
+     * here beside the key codes so a shortcut and its modifier are read from one place: a mistyped
+     * bit silently disables the shortcut rather than failing, which is the hard kind to notice.
+     */
+    const val MOD_CONTROL = 0x0002
+
+    /** True when Ctrl is held, per the host's modifier bitfield. */
+    fun isCtrl(modifiers: Int): Boolean = (modifiers and MOD_CONTROL) != 0
+
     /** True when the code is one of the four arrows. */
     fun isArrow(code: Int): Boolean = code == UP || code == DOWN || code == LEFT || code == RIGHT
 

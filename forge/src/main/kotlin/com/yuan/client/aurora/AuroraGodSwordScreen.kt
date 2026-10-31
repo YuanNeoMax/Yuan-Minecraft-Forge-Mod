@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import com.yuan.client.aurora.AuroraEditHistory
 import com.yuan.client.aurora.AuroraLook
 import com.yuan.client.aurora.ProvideLayoutRevision
 import com.yuan.client.aurora.panels.ArrangeMenu
@@ -110,6 +111,19 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
         // survive a scroll or a module switch.
         val holder = remember { V9Holder(v9StateOf(editingConfig)) }
 
+        // UNDO/REDO, and the debounce that gives it the right granularity.
+        //
+        // A slider drag rewrites `holder` on every frame it moves. Committing per frame would fill
+        // the stack with hundreds of one-pixel steps, so Ctrl+Z would appear to do nothing -- it
+        // would undo a single pixel of the drag. `pendingEdit` marks "something changed" and the
+        // effect below commits only once the values have gone quiet, which makes one gesture land as
+        // one step. That is what a player means by undo: put back what I just did.
+        //
+        // Keyed on the holder, so the history is per-open: reopening the window starts a fresh
+        // session rather than continuing a stack that refers to a configuration no longer loaded.
+        val history = remember(holder) { AuroraEditHistory(holder.snapshot()) }
+        var pendingEdit by remember { mutableStateOf(false) }
+
         var query by remember { mutableStateOf("") }
         var selectedModule by remember { mutableStateOf(GodSwordModules.MODULES.first().id) }
         // The open panels: a group's editors, keyed by group id. Several may be open at once --
@@ -144,7 +158,14 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
         // Any edit through the binding marks the window dirty. The flag is read by the footer and by
         // the ESC path; it is deliberately not a per-row comparison, which would cost a full config
         // diff on every frame.
-        val markDirty = { dirty = true }
+        //
+        // It also arms the undo history's debounce. Every write in this window goes through here, so
+        // this is the one place that knows a setting changed -- hooking it here means a new control
+        // cannot forget to record itself.
+        val markDirty = {
+            dirty = true
+            pendingEdit = true
+        }
 
         // The section being edited by the arrangement menu, or null.
         var menuSection by remember { mutableStateOf<String?>(null) }
@@ -234,9 +255,47 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
             railSections.flatMap { section -> section.entries.map { it.id } }
         }
 
+        // The debounced commit. `pendingEdit` is set by every edit; this waits for the values to
+        // settle and records one step. The delay is longer than a frame but far shorter than a
+        // person's sense of "that was one action", so a drag lands as a single undo while two
+        // deliberate clicks stay two.
+        LaunchedEffect(pendingEdit) {
+            if (pendingEdit) {
+                delay(EDIT_SETTLE_MS)
+                history.commit(holder.snapshot())
+                pendingEdit = false
+            }
+        }
+
         // THE KEY PATH, installed after the lists it walks. It closes over this frame's state, so it
         // is reassigned on every composition; the host hook holds the latest.
-        onKeyPressed = { keyCode ->
+        //
+        // A NAMED LOCAL FUNCTION rather than a lambda assigned to the hook. A lambda has no implicit
+        // label when it is assigned (only when it is passed as an argument), so the shortcut's early
+        // returns had nothing to return to and would not compile -- and spelling the label out does
+        // not help, because the implicit ones are the only names available.
+        fun handleKey(keyCode: Int, modifiers: Int): Boolean {
+            // Shortcuts first: Ctrl+Z/Y are unambiguous and must work wherever focus happens to be.
+            if (AuroraKeys.isCtrl(modifiers)) {
+                val restored = when (keyCode) {
+                    AuroraKeys.Z -> history.undo()
+                    AuroraKeys.Y -> history.redo()
+                    else -> null
+                }
+                if (restored != null) {
+                    holder.restore(restored)
+                    markDirty()
+                    previewConfig(holder.snapshot().toConfig())
+                    touchLayout()
+                    // The undo step must not itself be recorded as an edit: the debounce would then
+                    // commit the restored state as a new change, and redo would never be reachable.
+                    pendingEdit = false
+                    return true
+                }
+                // Consumed either way: a Ctrl+Z at the bottom of the history must not fall through
+                // and be typed into whatever happens to be listening.
+                if (keyCode == AuroraKeys.Z || keyCode == AuroraKeys.Y) return true
+            }
             val regionSize = when (focus.region) {
                 FocusRegion.Rail -> railEntryIds.size
                 FocusRegion.Content -> groups.size
@@ -244,7 +303,7 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
                 // they keep whatever index they had so reopening one returns you where you were.
                 FocusRegion.Panel, FocusRegion.Menu -> 0
             }
-            when {
+            return when {
                 keyCode == AuroraKeys.UP || keyCode == AuroraKeys.DOWN -> {
                     focus.step(if (keyCode == AuroraKeys.DOWN) 1 else -1, regionSize)
                     true
@@ -279,6 +338,7 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("鏄熸笂 路 绁
                 else -> false
             }
         }
+        onKeyPressed = { keyCode, modifiers -> handleKey(keyCode, modifiers) }
 
         ProvideLayoutRevision(layout, revision) {
         // The composition root, measured once: the stage every window-level surface resolves its
@@ -809,3 +869,12 @@ private fun AuroraConfirmDialog(
         }
     }
 }
+
+/**
+ * How long the editor waits for the values to stop changing before recording an undo step.
+ *
+ * <p>Long enough that one drag, or one held arrow key, lands as a single step; short enough that a
+ * deliberate pause before the next change still reads as two. The same order as the longest entrance
+ * animation, so "the interface has settled" means the same thing in both places.
+ */
+private const val EDIT_SETTLE_MS = 420L

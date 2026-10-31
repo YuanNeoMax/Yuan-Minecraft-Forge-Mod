@@ -129,9 +129,12 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
      * tree would receive nothing. The key code arrives as the raw GLFW value, which is what the
      * host has; [AuroraKeys] maps it to something the composition understands.
      *
+     * <p>[modifiers] is the GLFW modifier bitfield, passed through because a shortcut needs it:
+     * Ctrl+Z and a bare `z` are different intentions, and only the host knows which was held.
+     *
      * <p>Returning true consumes the key, so a handled arrow does not also scroll or move the player.
      */
-    protected var onKeyPressed: ((keyCode: Int) -> Boolean)? = null
+    protected var onKeyPressed: ((keyCode: Int, modifiers: Int) -> Boolean)? = null
 
     /** The config as it was when the window opened, for the unsaved-change comparison. */
     protected val baselineConfig: com.yuan.item.YuanGodSwordConfig =
@@ -578,7 +581,7 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
         // The general key path first, so navigation keys reach the window before anything else.
         // A consumed key stops here: an arrow that moved the focus must not also move the player.
         val keyHandler = onKeyPressed
-        if (keyHandler != null && keyHandler.invoke(keyCode)) {
+        if (keyHandler != null && keyHandler.invoke(keyCode, modifiers)) {
             return true
         }
         // ESC leaves the arrangement mode before it does anything else, and it does not reach the rest

@@ -210,8 +210,12 @@ public final class YuanAuroraCheck {
 
             assert hostSrc.contains("protected var onKeyPressed")
                     : "the host must expose a general key hook, not only the ESC hatch";
-            assert hostSrc.contains("if (keyHandler != null && keyHandler.invoke(keyCode))")
+            assert hostSrc.contains("if (keyHandler != null && keyHandler.invoke(keyCode, modifiers))")
                     : "a consumed key must stop at the hook, or Escape and the game also see it";
+            // The hook takes the modifier bitfield as well: Ctrl+Z and a bare `z` are different
+            // intentions, and only the host knows which was held.
+            assert hostSrc.contains("protected var onKeyPressed: ((keyCode: Int, modifiers: Int) -> Boolean)?")
+                    : "the key hook must receive the modifiers alongside the key code";
             // The model is two numbers -- a region and an index -- rather than a focus tree: focus
             // cannot nest in this window, so a tree would be complexity with nothing to express.
             assert focusSrc.contains("var region: FocusRegion by mutableStateOf")
@@ -328,6 +332,40 @@ public final class YuanAuroraCheck {
             // dismissal be finished early by an earlier run's timer.
             assert screenSrc.contains("val settled = closingPanels")
                     : "the exit cleanup must capture its own ids before waiting";
+
+            // ---- Tier B: undo/redo -----------------------------------------------------------
+            // Each line below is a decision rather than a detail: the granularity, the baseline, and
+            // the two things a commit must not do.
+            String histSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/AuroraEditHistory.kt"));
+            assert histSrc.contains("internal class AuroraEditHistory(initial: V9State)")
+                    : "the editor needs its own history: YuanConfigHistory works on a tag, not V9State";
+            // A commit that changes nothing is dropped -- that is what V9State's structural equality
+            // buys, and without it undo would appear to do nothing after a no-op edit.
+            assert histSrc.contains("if (now == settled) return")
+                    : "a commit that changes nothing must not enter the stack";
+            // One gesture is one step: a drag must not leave hundreds of one-pixel entries behind.
+            assert screenSrc.contains("LaunchedEffect(pendingEdit)")
+                    && screenSrc.contains("delay(EDIT_SETTLE_MS)")
+                    : "the commit must be debounced, or a drag fills the stack";
+            // Every write arms it, hooked on the one helper all edits already pass through, so a new
+            // control cannot forget to record itself.
+            assert screenSrc.contains("pendingEdit = true")
+                    : "an edit must arm the commit";
+            // An undo step must not itself be recorded, or redo could never be reached.
+            assert screenSrc.contains("pendingEdit = false")
+                    : "restoring must not be recorded as a new edit";
+            assert histSrc.contains("redo.clear()")
+                    : "a new edit must invalidate the redo branch";
+            // A lambda ASSIGNED to a property has no implicit label, so the shortcut's early returns
+            // need a named function. Spelling a label out does not work: the implicit ones are the
+            // only names available.
+            assert screenSrc.contains("fun handleKey(keyCode: Int, modifiers: Int): Boolean")
+                    : "the key path must be a named function for its early returns to compile";
+            // A shortcut and its modifier are read from one table, so the two cannot drift apart.
+            assert focusSrc.contains("const val MOD_CONTROL = 0x0002")
+                    && focusSrc.contains("fun isCtrl(modifiers: Int)")
+                    : "the Ctrl bit belongs with the key codes, not inline at the call site";
         }
 
         // The rail's marker is the exception: a bar rather than a surface. Its COLOUR is now a
