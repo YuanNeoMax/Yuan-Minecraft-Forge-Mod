@@ -366,6 +366,34 @@ public final class YuanAuroraCheck {
             assert focusSrc.contains("const val MOD_CONTROL = 0x0002")
                     && focusSrc.contains("fun isCtrl(modifiers: Int)")
                     : "the Ctrl bit belongs with the key codes, not inline at the call site";
+
+            // ---- Tier B: the search spans features ---------------------------------------------
+            // The content header's own filter only narrowed the feature already on screen, so finding
+            // "冷却时间" required already knowing which of the eight features held it -- which is when a
+            // search is worth having, and when the old one was useless.
+            String modSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordModules.kt"));
+            assert modSrc.contains("internal fun search(query: String, rowsOfModule: (Module) -> List<GodRow>)")
+                    : "the search must span modules";
+            assert modSrc.contains("internal data class SearchHit(")
+                    && modSrc.contains("val moduleId: String")
+                    : "a hit must name its feature, or choosing it cannot take you there";
+            // Gated rows are INCLUDED even when their gate is closed: a row hidden by the current
+            // renderStyle is still a real setting, and omitting it makes the search silently
+            // incomplete -- the worst failure a search can have.
+            assert !modSrc.substring(
+                    modSrc.indexOf("internal fun search("),
+                    modSrc.indexOf("internal data class Group("))
+                    .contains("it.gate")
+                    : "the search must not skip gated rows, or it silently misses settings";
+            // The results REPLACE the feature's own rows while a query is active, and choosing one
+            // switches features; the query stays, because the player is usually comparing hits.
+            assert screenSrc.contains("GodSwordSearchResults(")
+                    : "a query must show cross-module results";
+            assert screenSrc.contains("selectedModule = hit.moduleId")
+                    : "choosing a hit must open the feature it lives in";
+            assert screenSrc.contains("val searchHits = remember(query, revision)")
+                    : "the hits must be keyed on the query, not recomputed every frame";
         }
 
         // The rail's marker is the exception: a bar rather than a surface. Its COLOUR is now a

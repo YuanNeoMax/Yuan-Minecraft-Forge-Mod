@@ -37,6 +37,8 @@ import com.yuan.client.aurora.panels.AuroraSettingsPanel
 import com.yuan.client.aurora.panels.GodRow
 import com.yuan.client.aurora.panels.GodSwordBinding
 import com.yuan.client.aurora.panels.GodSwordModules
+import androidx.compose.runtime.rememberCoroutineScope
+import com.yuan.client.aurora.panels.GodSwordSearchResults
 import com.yuan.client.aurora.panels.GodSwordInlinePanel
 import com.yuan.client.aurora.panels.GodSwordPanel
 import com.yuan.client.aurora.panels.GodSwordRows
@@ -246,6 +248,19 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                     }
                     if (matching.isEmpty()) null else group.copy(rows = matching)
                 }
+            }
+        }
+
+        // THE CROSS-MODULE SEARCH. Computed for every module, not just the selected one -- finding
+        // "冷却时间" should not require already knowing which of the eight features holds it.
+        //
+        // Keyed on `query` and the revision, so it is recomputed when the query changes or a value
+        // moves (a rename or a gate can add or remove a hit) and not on every recomposition.
+        val searchHits = remember(query, revision) {
+            if (query.isBlank()) {
+                emptyList()
+            } else {
+                GodSwordModules.search(query) { m -> rowsFor(m, holder) }
             }
         }
 
@@ -503,6 +518,25 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                                 groups
                             } else {
                                 GodSwordModules.groupsOf(contentModule, rowsFor(contentModule, holder))
+                            }
+
+                            // While a query is active the content area shows the cross-module results
+                            // rather than the current feature filtered down. The filter was the old
+                            // behaviour and it could only ever narrow what was already on screen.
+                            //
+                            // It does NOT clear the query when a hit is chosen: the player is usually
+                            // comparing several, and the row they came for is easier to find with the
+                            // filter still applied. Switching the feature is the whole effect.
+                            if (query.isNotBlank()) {
+                                GodSwordSearchResults(
+                                    query = query,
+                                    hits = searchHits,
+                                    onOpen = { hit ->
+                                        selectedModule = hit.moduleId
+                                        touchLayout()
+                                    }
+                                )
+                                return@Crossfade
                             }
 
                             if (contentGroups.isEmpty() && !contentModule.isWindowSettings) {

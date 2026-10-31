@@ -112,6 +112,56 @@ internal object GodSwordModules {
     internal fun byId(id: String): Module? = MODULES.firstOrNull { it.id == id }
 
     /**
+     * One match in a cross-module search.
+     *
+     * <p>Carries the module it came from, not just the row: a result list is only useful if choosing
+     * one takes the player to where the setting lives, and the row id alone does not say which
+     * feature owns it.
+     */
+    internal data class SearchHit(
+        val moduleId: String,
+        val moduleLabel: String,
+        val groupHeading: String,
+        val rowId: String,
+        val rowName: String
+    )
+
+    /**
+     * Every row in every feature whose name contains [query].
+     *
+     * <p>SPANS MODULES, which is the point: the content header's own filter narrows the feature
+     * already on screen, so finding "冷却时间" meant already knowing which of the eight features
+     * held it. Searching the whole tree is what turns the box into something a player reaches for
+     * when they do not know where a setting is -- which is when a search is worth having.
+     *
+     * <p>Gated rows are included even when their gate is closed. A row that is hidden by the current
+     * `renderStyle` is still a real setting, and leaving it out would make the search silently
+     * incomplete -- the worst failure a search can have, because the player concludes the setting
+     * does not exist.
+     */
+    internal fun search(query: String, rowsOfModule: (Module) -> List<GodRow>): List<SearchHit> {
+        val needle = query.trim()
+        if (needle.isEmpty()) return emptyList()
+        val hits = ArrayList<SearchHit>()
+        for (module in MODULES) {
+            for (group in groupsOf(module, rowsOfModule(module))) {
+                for (godRow in group.rows) {
+                    if (godRow.row.name.contains(needle, true)) {
+                        hits += SearchHit(
+                            moduleId = module.id,
+                            moduleLabel = module.label,
+                            groupHeading = group.heading,
+                            rowId = godRow.row.id,
+                            rowName = godRow.row.name
+                        )
+                    }
+                }
+            }
+        }
+        return hits
+    }
+
+    /**
      * One cell of the content grid: a named group of rows inside a module.
      *
      * <p>This is the third level the reference uses and the one the previous design was missing. A rail
