@@ -1,6 +1,8 @@
 package com.yuan.client.aurora.scaffold
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -276,12 +278,22 @@ internal fun AuroraRail(
                         .padding(horizontal = 8.dp)
                         .clip(RoundedCornerShape(entryCorner))
                         .background(
-                            when {
-                                isTarget -> Star.starlightTint
-                                selected -> selectedPlate
-                                hovered -> Star.hover
-                                else -> Color.Transparent
-                            }
+                            // The hover fill FADES; the selected plate does not.
+                            //
+                            // Hover is a transient: the pointer passes over many rows on its way
+                            // somewhere, and a fill that snaps on and off under a moving cursor reads
+                            // as flicker -- several rows blinking in sequence. Easing it in over the
+                            // "instant" duration keeps the acknowledgement without the strobe.
+                            //
+                            // Selection is a state, not a transient: it must be readable the moment it
+                            // changes, with nothing to wait for. Animating it would make a click feel
+                            // slow to register, which is the wrong trade entirely.
+                            entryFill(
+                                isTarget = isTarget,
+                                selected = selected,
+                                hovered = hovered,
+                                selectedPlate = selectedPlate
+                            )
                         )
                         // THE FOCUS RING, and why it is a ring rather than the hover fill.
                         //
@@ -456,7 +468,16 @@ private fun SectionHeader(
                     .height(24.dp)
                     .padding(horizontal = 10.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(if (hovered) Star.hover else Color.Transparent)
+                    .background(
+                        animateColorAsState(
+                            targetValue = if (hovered) Star.hover else Color.Transparent,
+                            animationSpec = tween(
+                                Motion.dur(Motion.INSTANT_MS),
+                                easing = Motion.standard
+                            ),
+                            label = "sectionHover"
+                        ).value
+                    )
                     .pointerInput(section.id) {
                         awaitPointerEventScope {
                             while (true) {
@@ -677,3 +698,31 @@ internal fun AuroraSearchField(
     }
 }
 
+/**
+ * The rail entry's background: transient states fade, deliberate states do not.
+ *
+ * <p>[hovered] is eased so a pointer crossing the column does not strobe several rows in sequence.
+ * [selected] and [isTarget] switch immediately, because both answer "what did I just do", and a
+ * delay there reads as the interface thinking about it.
+ *
+ * <p>The drag target keeps the starlight tint it always had: it is feedback for a gesture in
+ * progress, and it is the one colour the palette reserves for the mod's own identity.
+ */
+@Composable
+private fun entryFill(
+    isTarget: Boolean,
+    selected: Boolean,
+    hovered: Boolean,
+    selectedPlate: Color
+): Color {
+    val hoverFade = animateColorAsState(
+        targetValue = if (hovered) Star.hover else Color.Transparent,
+        animationSpec = tween(Motion.dur(Motion.INSTANT_MS), easing = Motion.standard),
+        label = "entryHover"
+    )
+    return when {
+        isTarget -> Star.starlightTint
+        selected -> selectedPlate
+        else -> hoverFade.value
+    }
+}

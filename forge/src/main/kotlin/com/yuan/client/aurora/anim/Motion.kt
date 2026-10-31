@@ -198,7 +198,7 @@ internal fun EnterBlock(
 }
 
 /**
- * A one-shot 0..1 ramp for a surface that is being opened, e.g. a floating panel appearing.
+ * A 0..1 ramp for a surface that is being shown or dismissed, e.g. a floating panel.
  *
  * <p>WHY THIS IS AN [Animatable] AND NOT `animateFloatAsState(targetValue = 1f)`. That is what this
  * used to be, and it never animated: an `animate*AsState` is created already AT its target, with no
@@ -208,21 +208,28 @@ internal fun EnterBlock(
  * a floating panel appeared INSTANTLY, with no fade and no scale, which reads as a pop rather than
  * as a surface arriving.
  *
+ * <p>[shown] drives the ramp in BOTH directions, which is what makes a dismissal the mirror of its
+ * entrance. A panel that fades in and then blinks out of existence is worse than one that never
+ * animated at all: the eye is told to track an arrival and then shown nothing leaving.
+ *
  * <p>Reading it must happen in a DRAW phase (`graphicsLayer { }` / `drawBehind { }`). The value
  * changes every frame while the ramp runs, and composition-phase reads would recompose the whole
  * subtree for each of those frames.
  *
- * @param key identifies the surface, so two panels opening at once each get their own ramp.
+ * @param key identifies the surface, so two panels animating at once each get their own ramp.
  */
 @Composable
-internal fun openProgress(key: Any): State<Float> {
-    // At OFF there is nothing to animate and the surface must simply be present.
+internal fun openProgress(key: Any, shown: Boolean = true): State<Float> {
+    // At OFF there is nothing to animate and the surface must simply be in its final state.
     if (!Motion.animated) {
-        return remember(key) { mutableStateOf(1f) }
+        return remember(key, shown) { mutableStateOf(if (shown) 1f else 0f) }
     }
-    val anim = remember(key) { Animatable(0f) }
-    LaunchedEffect(key) {
-        anim.animateTo(1f, tween(Motion.dur(Motion.WINDOW_MS), easing = Motion.enter))
+    val anim = remember(key) { Animatable(if (shown) 0f else 1f) }
+    LaunchedEffect(key, shown) {
+        anim.animateTo(
+            targetValue = if (shown) 1f else 0f,
+            animationSpec = tween(Motion.dur(Motion.WINDOW_MS), easing = Motion.enter)
+        )
     }
     return anim.asState()
 }

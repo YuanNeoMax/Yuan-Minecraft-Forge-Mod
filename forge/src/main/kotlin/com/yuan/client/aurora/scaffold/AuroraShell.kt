@@ -348,6 +348,14 @@ internal fun BoxScope.AuroraFloatingPanel(
     onGeometryChange: () -> Unit,
     onClose: () -> Unit,
     onOpenMenu: () -> Unit = {},
+    /**
+     * True while this panel is playing its dismissal.
+     *
+     * <p>The panel stays in the composition for the length of that animation, so the screen marks it
+     * rather than removing it: a surface that fades in must also fade out, and a list that dropped
+     * the id immediately could only ever blink it away.
+     */
+    dismissing: Boolean = false,
     content: @Composable () -> Unit
 ) {
     if (stageWidth <= 0f || stageHeight <= 0f) return
@@ -364,7 +372,7 @@ internal fun BoxScope.AuroraFloatingPanel(
     // openProgress), so a motion-sensitive player gets the panel immediately and unconditioned.
     //
     // Read in the layer below, never during composition: the value moves every frame of the ramp.
-    val appear = openProgress(title)
+    val appear = openProgress(title, shown = !dismissing)
 
     // The gesture frame resolves the box in Dp space, so the stage is handed over in the same
     // unit it measures fractions against.

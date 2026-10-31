@@ -66,7 +66,14 @@ internal fun GodSwordInlinePanel(
     onPresetLoad: (Int) -> Unit,
     onPresetSave: (Int) -> Unit,
     onOpenGroup: (GodSwordModules.Group) -> Unit,
-    onChanged: () -> Unit
+    onChanged: () -> Unit,
+    /**
+     * Whether the rows play their staggered entrance.
+     *
+     * <p>False for the OUTGOING half of a module crossfade: a copy on its way out must not also
+     * stage its rows in one after another, or the two animations fight over the same pixels.
+     */
+    staging: Boolean = true
 ) {
     // Subscribe: the rows below read plain fields through the binding, so a value written without
     // a subscription changes the model and never repaints.
@@ -80,7 +87,7 @@ internal fun GodSwordInlinePanel(
         if (!twoColumns) {
             Column(inner.padding(horizontal = 12.dp, vertical = 8.dp)) {
                 groups.forEachIndexed { index, group ->
-                    EnterBlock(delayMs = staggerDelay(index), identity = group.id, fromY = 6) {
+                    EnterBlock(delayMs = staggerDelay(index), identity = group.id, enabled = staging, fromY = 6) {
                         SectionBlock(group, holder, query, presetSlot, onPresetSlot, onPresetLoad,
                             onPresetSave, onOpenGroup, onChanged)
                     }
@@ -99,7 +106,7 @@ internal fun GodSwordInlinePanel(
             columns.forEachIndexed { columnIndex, columnGroups ->
                 Column(Modifier.weight(1f)) {
                     columnGroups.forEachIndexed { index, group ->
-                        EnterBlock(delayMs = staggerDelay(index + columnIndex * half), identity = group.id, fromY = 6) {
+                        EnterBlock(delayMs = staggerDelay(index + columnIndex * half), identity = group.id, enabled = staging, fromY = 6) {
                             SectionBlock(group, holder, query, presetSlot, onPresetSlot, onPresetLoad,
                                 onPresetSave, onOpenGroup, onChanged)
                         }

@@ -1,5 +1,8 @@
 package com.yuan.client.aurora
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import com.yuan.client.aurora.anim.Motion
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.material3.Text
@@ -15,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -114,6 +118,19 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
         // version existed only because a list was once appended to per rail click; the list is
         // written through a set-like replace, so that failure cannot return.)
         var openPanels by remember { mutableStateOf(listOf<String>()) }
+        // Panels playing their dismissal. They stay rendered (and are skipped by the stale sweep)
+        // until the ramp finishes, then the effect below removes them for good.
+        var closingPanels by remember { mutableStateOf(listOf<String>()) }
+        // A local helper rather than four copies of "start closing": dismiss is reached from the
+        // panel's own close control and from ESC, and the two must behave identically.
+        val dismissPanel = { id: String ->
+            if (id in openPanels && id !in closingPanels) {
+                closingPanels = closingPanels + id
+                // The opening list loses it immediately so it cannot be raised or focused, while the
+                // rendering list (below) keeps it until the animation has run.
+                openPanels = openPanels - id
+            }
+        }
         // The shared resize-cursor state: one per stage, feeding the cursor overlay at the root.
         val cursor = remember { ResizeCursorState() }
         // Which element the arrangement menu is editing, or null when none is open.
@@ -157,7 +174,7 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                 // that can only be left by hitting a small target is the same trap the ESC hatch
                 // exists to prevent.
                 openPanels.isNotEmpty() -> {
-                    openPanels = openPanels.dropLast(1)
+                    dismissPanel(openPanels.last())
                     // Focus cannot stay in a panel that is no longer open.
                     if (focus.region == FocusRegion.Panel) {
                         focus.region = FocusRegion.Rail
@@ -400,7 +417,35 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                             // (`groups` is hoisted above the shell: the keyboard focus model walks the
                             // same list, so the count it moves by and the rows drawn here are one value.)
 
-                            if (groups.isEmpty() && !module.isWindowSettings) {
+                            // A MODULE SWITCH CROSSFADES.
+                            //
+                            // Switching features is the most frequent action in this window -- it is
+                            // what the rail is for -- and it used to swap the whole content area in a
+                            // single frame. The incoming rows then staged in one after another, so the
+                            // eye saw the previous feature vanish instantly and the next one assemble
+                            // afterwards. That reads as a load, not as a move.
+                            //
+                            // Keyed on the module id, so it fires on a real switch and not on an edit:
+                            // `revision` changes on every slider drag, and crossfading there would make
+                            // the whole page flicker while dragging.
+                            Crossfade(
+                                targetState = selectedModule,
+                                animationSpec = tween(Motion.dur(Motion.SLOW_MS), easing = Motion.enter),
+                                label = "moduleSwap"
+                            ) { shownModule ->
+                            // The outgoing copy must still draw ITS OWN rows. `groups` and `module`
+                            // describe the newly selected one, so while the old frame is fading out
+                            // they would be the wrong feature's contents -- and would describe a module
+                            // whose rows are not the ones the outgoing frame was laid out with.
+                            val contentModule = GodSwordModules.byId(shownModule)
+                                ?: GodSwordModules.MODULES.first()
+                            val contentGroups = if (shownModule == selectedModule) {
+                                groups
+                            } else {
+                                GodSwordModules.groupsOf(contentModule, rowsFor(contentModule, holder))
+                            }
+
+                            if (contentGroups.isEmpty() && !contentModule.isWindowSettings) {
                                 Text(
                                     if (query.isEmpty()) "该模块当前没有可用设置" else "没有匹配「$query」的设置",
                                     fontSize = TypeScale.row,
@@ -410,7 +455,7 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                                 )
                             }
 
-                            if (module.isWindowSettings) {
+                            if (contentModule.isWindowSettings) {
                                 AuroraSettingsPanel(
                                     layout = layout,
                                     onChanged = { touchLayout() },
@@ -418,7 +463,7 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                                 )
                             } else {
                                 GodSwordInlinePanel(
-                                    groups = groups,
+                                    groups = contentGroups,
                                     holder = holder,
                                     query = query,
                                     presetSlot = presetSlot,
@@ -441,8 +486,12 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                                     onChanged = {
                                         markDirty()
                                         previewConfig(holder.snapshot().toConfig())
-                                    }
+                                    },
+                                    // The outgoing half fades without staging: two animations on the
+                                    // same pixels read as a stutter, not as a move.
+                                    staging = shownModule == selectedModule
                                 )
+                            }
                             }
 
                             // The open panels, drawn in depth order (pinned tier first, then the
@@ -456,7 +505,12 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                             // worked. Resolution now falls back to the panel's OWN module, found
                             // from the id's "module/heading" shape.
                             val allGroups = GodSwordModules.groupsOf(module, rowsFor(module, holder))
-                            val openOrdered = openPanels
+                            // Open panels PLUS the ones still playing their dismissal. The exit
+                            // animation needs its panel to still exist, so the dismissing ids are
+                            // rendered here and removed by the effect further down once the ramp has
+                            // run -- dropping them at dismiss time could only ever blink them out.
+                            val renderedPanelIds = openPanels + closingPanels.filterNot { it in openPanels }
+                            val openOrdered = renderedPanelIds
                                 .mapNotNull { id ->
                                     val g = groups.firstOrNull { it.id == id }
                                         // A searched-for group is not in the filtered list, so the
@@ -485,8 +539,9 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                                         touchLayout()
                                     },
                                     onGeometryChange = { touchLayout() },
-                                    onClose = { openPanels = openPanels - panelId },
-                                    onOpenMenu = { menuTarget = ArrangeTarget.Panel }
+                                    onClose = { dismissPanel(panelId) },
+                                    onOpenMenu = { menuTarget = ArrangeTarget.Panel },
+                                    dismissing = panelId in closingPanels
                                 ) {
                                     GodSwordPanel(
                                         rows = group.rows,
@@ -521,11 +576,30 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                             // STALE MEANS GONE FROM ITS OWN MODULE, not "not in the current one":
                             // a panel belonging to another module is still perfectly valid, and
                             // sweeping it here is what made a second panel impossible to keep open.
+                            // A panel whose group no longer exists is dropped without an animation:
+                            // there is nothing left to animate, and waiting would leave a ghost on
+                            // screen for a feature the player has deleted.
                             val stale = openPanels.filterNot { id ->
                                 id in allGroups.map { it.id } || groupOfPanelId(id, holder) != null
                             }
                             if (stale.isNotEmpty()) {
                                 openPanels = openPanels - stale
+                            }
+
+                            // The exit ramp's own cleanup.
+                            //
+                            // CAPTURED BEFORE THE DELAY, not read after it. The effect is keyed on
+                            // the dismissing set, so a second panel starting to close cancels and
+                            // restarts this block -- and a body that removed "everything currently
+                            // dismissing" would then finish the NEW panel early, cutting its animation
+                            // short. Holding the ids this run is responsible for means a later
+                            // dismissal waits its own full ramp.
+                            LaunchedEffect(closingPanels) {
+                                val settled = closingPanels
+                                if (settled.isNotEmpty()) {
+                                    delay((Motion.dur(Motion.WINDOW_MS) + 30).toLong())
+                                    closingPanels = closingPanels - settled
+                                }
                             }
                         }
                     }

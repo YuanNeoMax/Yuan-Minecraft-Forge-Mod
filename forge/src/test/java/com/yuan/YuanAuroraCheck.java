@@ -257,9 +257,77 @@ public final class YuanAuroraCheck {
                 String esc = code.substring(at, end);
                 assert esc.contains("openPanels.isNotEmpty()")
                         : "ESC must close the topmost panel before it closes the window";
-                assert esc.contains("openPanels.dropLast(1)")
-                        : "ESC must dismiss ONE panel, not all of them";
+                assert esc.contains("dismissPanel(openPanels.last())")
+                        : "ESC must dismiss exactly the topmost panel, through the shared path";
             }
+
+            // ---- Tier A: the polish pass ------------------------------------------------------
+            // A module switch CROSSFADES. It is the most frequent action in the window, and it used
+            // to swap the content area in one frame -- the old feature vanished and the new one then
+            // staged in, which reads as a load rather than as a move.
+            assert screenSrc.contains("Crossfade(")
+                    && screenSrc.contains("targetState = selectedModule")
+                    : "switching features must crossfade";
+            // Keyed on the MODULE, never on `revision`: revision changes on every slider drag, and
+            // crossfading there would make the page flicker while the player drags.
+            assert !screenSrc.contains("targetState = revision")
+                    : "the crossfade must not be keyed on revision, or every drag flickers the page";
+            // The outgoing copy draws its OWN rows: `groups` describes the module being switched TO,
+            // so reusing it would paint the new feature's contents into the frame fading out.
+            assert screenSrc.contains("contentGroups")
+                    : "the outgoing half must resolve its own module's rows";
+            // And it fades without staging, so two animations do not fight over the same pixels.
+            assert screenSrc.contains("staging = shownModule == selectedModule")
+                    : "only the incoming half may stage its rows";
+            assert Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordInlinePanel.kt"))
+                    .contains("enabled = staging")
+                    : "the panel must honour the staging flag";
+
+            // The wheel GLIDES. `verticalScroll` only flings from a drag -- a notch has no release
+            // velocity -- so each notch used to teleport the list and stop.
+            String commonSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/scaffold/AuroraCommon.kt"));
+            assert commonSrc.contains("internal fun Modifier.smoothWheel(state: ScrollState)")
+                    : "the wheel must be eased";
+            assert commonSrc.contains("state.animateScrollTo(goal.roundToInt())")
+                    : "the glide must animate the scroll rather than jump it";
+            assert commonSrc.contains("change.consume()")
+                    : "the eased wheel must consume, or the scroller moves the list twice per notch";
+            // ORDER: the easing handler sits INSIDE the scroller so the child-first Main pass lets it
+            // see the notch first. Reversed, the scroller wins and the glide is inert.
+            assert commonSrc.contains(
+                    "this.verticalScroll(state).smoothWheel(state).thinScrollbar(state)")
+                    : "smoothWheel must sit inside verticalScroll or the scroller handles the wheel";
+
+            // Hover FADES, selection does not.
+            assert grid.contains("private fun entryFill(")
+                    : "the entry fill must ease its transient states";
+            assert grid.contains("label = \"entryHover\"")
+                    : "the hover fill must be animated";
+            assert !grid.contains("hovered -> Star.hover")
+                    : "a snapping hover fill strobes as the pointer crosses the column";
+            // Selection stays instant: a click must not appear to wait for an animation.
+            assert grid.contains("selected -> selectedPlate")
+                    : "the selected plate must switch immediately";
+
+            // The panel's dismissal is the mirror of its entrance.
+            assert motion.contains("internal fun openProgress(key: Any, shown: Boolean = true)")
+                    : "the surface ramp must run in both directions";
+            assert motion.contains("if (shown) 1f else 0f")
+                    : "the ramp must drive toward the shown/hidden target";
+            assert shell.contains("dismissing: Boolean = false")
+                    && shell.contains("openProgress(title, shown = !dismissing)")
+                    : "a panel must know it is being dismissed so it can fade out";
+            // The dismissing panel stays RENDERED until its ramp has run; removing the id at dismiss
+            // time could only ever blink it away.
+            assert screenSrc.contains("renderedPanelIds")
+                    && screenSrc.contains("dismissing = panelId in closingPanels")
+                    : "a dismissing panel must stay on screen for its exit ramp";
+            // Cleanup captures its ids BEFORE the delay: reading the set after it would let a later
+            // dismissal be finished early by an earlier run's timer.
+            assert screenSrc.contains("val settled = closingPanels")
+                    : "the exit cleanup must capture its own ids before waiting";
         }
 
         // The rail's marker is the exception: a bar rather than a surface. Its COLOUR is now a
@@ -409,15 +477,19 @@ public final class YuanAuroraCheck {
         // never moved. That is why it had no callers -- not because nobody wanted a panel entrance,
         // but because it did nothing when they tried. A floating panel therefore POPPED into
         // existence, which is most of what "动画不够流畅" was about.
-        assert motion.contains("val anim = remember(key) { Animatable(0f) }")
-                : "the entrance must ramp from 0 via Animatable; animate*AsState(target=1f) never runs";
-        assert motion.contains("anim.animateTo(1f, tween(Motion.dur(Motion.WINDOW_MS)")
-                : "the entrance ramp must be gated through Motion.dur";
+        // The ramp now runs in BOTH directions -- a dismissal is the mirror of its entrance -- so it
+        // starts at whichever end it is not at and animates toward the target.
+        assert motion.contains("val anim = remember(key) { Animatable(if (shown) 0f else 1f) }")
+                : "the ramp must start at the end it is not at; animate*AsState(target) never runs";
+        assert motion.contains("targetValue = if (shown) 1f else 0f")
+                : "the ramp must drive toward the shown/hidden target, so dismissal mirrors entrance";
+        assert motion.contains("animationSpec = tween(Motion.dur(Motion.WINDOW_MS)")
+                : "the surface ramp must be gated through Motion.dur";
         assert motion.contains("if (!Motion.animated)")
                 : "at OFF the entrance must collapse to complete, not animate";
         // Its one consumer, and the only legal place to read it: a draw phase.
-        assert shell.contains("val appear = openProgress(title)")
-                : "the floating panel must actually use the entrance ramp";
+        assert shell.contains("val appear = openProgress(title, shown = !dismissing)")
+                : "the floating panel must drive the ramp from its dismissing flag";
         assert shell.contains("val p = appear.value")
                 : "the entrance must be read inside graphicsLayer, not during composition";
         assert !stripComments(shell).contains("openProgress(title).value")
@@ -641,7 +713,10 @@ public final class YuanAuroraCheck {
                 : "no grid between the rail and the settings: it was two clicks for no information";
         assert godScreen.contains("GodSwordModules.groupsOf(")
                 : "a feature must be split into groups, or it renders as one undivided column";
-        assert godScreen.contains("groups.isEmpty()")
+        // The emptiness test now reads the CROSSFADE's own group list: while an outgoing frame is on
+        // screen, `groups` already belongs to the module being switched to, so testing it would
+        // describe the wrong feature.
+        assert godScreen.contains("contentGroups.isEmpty()")
                 : "an empty feature must say so rather than drawing an empty column";
 
         // ---- the popup rule: what does not fit a line goes to its own panel -----------------------

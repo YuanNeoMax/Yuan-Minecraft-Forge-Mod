@@ -5,6 +5,13 @@ import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.verticalScroll
+import kotlin.math.roundToInt
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -67,9 +74,67 @@ internal fun Modifier.thinScrollbar(state: ScrollState): Modifier = drawBehind {
     )
 }
 
-/** Scrolling with the thin bar attached, so the two are never applied separately. */
+/**
+ * Scrolling with the thin bar attached, and the wheel eased rather than cut.
+ *
+ * <p>ORDER IS LOAD-BEARING. [smoothWheel] sits INSIDE [verticalScroll], and Compose dispatches the
+ * Main pass child-first, so the inner handler sees a wheel event before the scroller does. It
+ * consumes the notch and drives the glide; the scroller underneath therefore never sees the wheel
+ * and keeps owning what it should -- drag, fling, and the scroll range. Putting the two in the other
+ * order makes the scroller win, the notch jumps as before, and the glide never runs: the modifier
+ * would be present, correct-looking, and inert.
+ */
+@Composable
 internal fun Modifier.auroraScroll(state: ScrollState): Modifier =
-    this.verticalScroll(state).thinScrollbar(state)
+    this.verticalScroll(state).smoothWheel(state).thinScrollbar(state)
+
+/**
+ * Eases the WHEEL's discrete notches into a short glide.
+ *
+ * <p>`verticalScroll` already flings, but only from a DRAG: a fling needs a release velocity, and a
+ * wheel notch arrives as a jump with none. So every notch landed as an instant offset -- the list
+ * teleported 56dp and stopped, which is the "hard" part of the scrolling rather than its speed.
+ *
+ * <p>This does not replace the scroll machinery. It eats the wheel event, measures where the notch
+ * would put the list, and animates the remaining distance as a short ease-out, so a notch reads as a
+ * push that settles. Several notches in quick succession RETARGET the one animation instead of
+ * queueing, which is what makes a fast wheel spin feel like a single movement rather than a stutter.
+ *
+ * <p>Consuming is the point, not a side effect: if the scroller also handled the wheel, the list
+ * would move twice per notch.
+ */
+@Composable
+internal fun Modifier.smoothWheel(state: ScrollState): Modifier {
+    // The animation is driven from composition, not from the pointer lambda: a pointer handler
+    // cannot anchor an animation to the composition, and one launched ad hoc could outlive a
+    // composable that left the tree mid-glide.
+    var target by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(target) {
+        val goal = target ?: return@LaunchedEffect
+        // animateScrollTo steps ScrollState frame by frame and clamps each step to the live range,
+        // so a notch arriving while the content is still measuring cannot overshoot the end.
+        state.animateScrollTo(goal.roundToInt())
+        // Clear only if no newer notch retargeted us while this one was running.
+        if (target == goal) target = null
+    }
+    return this.pointerInput(state) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent()
+                if (event.type != PointerEventType.Scroll) continue
+                val change = event.changes.firstOrNull() ?: continue
+                if (change.isConsumed) continue
+                val dy = change.scrollDelta.y
+                if (dy == 0f) continue
+                // Retarget from wherever the glide currently is, so successive notches accumulate
+                // into one movement instead of restarting from the resting position.
+                val from = target ?: state.value.toFloat()
+                target = (from + dy).coerceIn(0f, state.maxValue.toFloat())
+                change.consume()
+            }
+        }
+    }
+}
 
 /**
  * The hairline under a header or above a footer.
