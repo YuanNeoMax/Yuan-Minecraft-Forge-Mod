@@ -146,6 +146,37 @@ public final class YuanTimeRewindRestorer {
                 }
                 restores.add(new LevelRestoreData(level, after, before, targetTick));
             }
+
+            // THE CROSS-DIMENSION FALLBACK, and why it exists. Player snapshots are recorded PER
+            // DIMENSION -- each recorder only sees the players of its own level. A player who walked
+            // through a portal five seconds ago has no snapshot in the trigger dimension's history:
+            // their death rewind used to return false here and the protection failed silently,
+            // exactly where a portal trap wants it to. Their OLD dimension's recorder still has the
+            // snapshot, so the search widens to every recorded level before giving up.
+            if (playerSnapshot == null && player != null) {
+                UUID playerId = player.getUUID();
+                for (ServerLevel level : levels) {
+                    YuanTimeRewindRecorder recorder = YuanTimeRewindEvents.recorder(level);
+                    if (recorder == null) continue;
+                    long fallbackTick = level.getGameTime()
+                            - config.rewindWindowSeconds * 20L;
+                    YuanTimeRewindRecorder.PlayerSnapshot candidate =
+                            findPlayerSnapshot(player,
+                                    recorder.history().atOrBefore(fallbackTick));
+                    if (candidate != null) {
+                        playerSnapshot = candidate;
+                        break;
+                    }
+                }
+                if (playerSnapshot == null && death) {
+                    // Found nowhere in the whole retained history. Saying so beats failing silently:
+                    // a protection that dies quietly is indistinguishable from not having it.
+                    if (!isPlayerGone(player)) {
+                        player.displayClientMessage(Component.literal(
+                                "\u00a7c[回溯] 保留窗口内找不到你的状态快照，保护未生效"), true);
+                    }
+                }
+            }
             if (restores.isEmpty()) return false;
             if (death && playerSnapshot == null) return false;
             if (player != null) {

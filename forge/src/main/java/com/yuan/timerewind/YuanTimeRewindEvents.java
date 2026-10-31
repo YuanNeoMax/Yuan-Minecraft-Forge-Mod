@@ -16,6 +16,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
@@ -176,10 +177,30 @@ public final class YuanTimeRewindEvents {
 
     /** Ends the ongoing playback immediately: pending restore is dropped, lock released, clients notified. */
     static void cancelPendingPlayback() {
+        // CANCEL MEANS "SKIP THE ANIMATION", NOT "ABANDON THE RESTORE".
+        //
+        // The old cancel dropped the pending restore and released the lock, which left three things
+        // behind: the trigger of a death rewind stuck at 1 health (their recovery runs in
+        // finishProgressive), a queued self-rescue nobody would ever serve, and a world frozen
+        // halfway through its own rewind. Finishing the remaining batches now applies the whole
+        // rewind in one tick -- no animation, but a CONSISTENT world and a healthy player.
+        PendingPlayback pending = pendingPlayback;
+        boolean finished = false;
+        if (pending != null) {
+            try {
+                finished = YuanTimeRewindRestorer.applyProgressiveBatch(pending, true);
+            } catch (RuntimeException e) {
+                LOGGER.warn("[YuanTimeRewind] cancel failed to finish restore", e);
+            }
+            if (finished) {
+                YuanTimeRewindRestorer.finishProgressive(pending);
+            }
+        }
         clearPendingPlayback();
         YuanTimeRewindServerState.clearPlayback();
         YuanTimeRewindServerState.endPlayback();
         YuanTimeRewindServerState.release();
+        serveQueuedRescue();
         Yuan.CHANNEL.send(PacketDistributor.ALL.noArg(), new YuanTimeRewindEndPacket(-1));
     }
 
@@ -197,6 +218,13 @@ public final class YuanTimeRewindEvents {
         return maxRetries <= 0 || retry < maxRetries;
     }
 
+    /**
+     * The active player died during their own playback. Playback rewinds TO a snapshot taken before
+     * their first death, so re-running it after the current one completes undoes this second death
+     * as well -- which is the promise a death-protection feature makes. Cleared once served.
+     */
+    private static volatile UUID queuedSelfRescue;
+
     @SubscribeEvent
     public static void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
@@ -208,6 +236,7 @@ public final class YuanTimeRewindEvents {
                 YuanTimeRewindServerState.clearPlayback();
                 YuanTimeRewindServerState.endPlayback();
                 YuanTimeRewindServerState.release();
+                serveQueuedRescue();
             }
             return;
         }
@@ -222,6 +251,45 @@ public final class YuanTimeRewindEvents {
             }
             recorder.tick(level.getGameTime());
         }
+    }
+
+    /**
+     * Runs the active player's queued self-rescue once the lock is free.
+     *
+     * <p>Called only after {@code release()}: restore() takes the lock itself, so invoking it while
+     * still rewinding would just fail the CAS. A player reference is deliberately NOT held -- the
+     * player may have disconnected during playback -- so the rescue is looked up from the UUID, and
+     * a gone player simply drops the queue.
+     */
+    private static void serveQueuedRescue() {
+        UUID queued = queuedSelfRescue;
+        if (queued == null) return;
+        queuedSelfRescue = null;
+        ServerPlayer player = null;
+        var server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) return;
+        Player found = server.getPlayerList().getPlayer(queued);
+        if (!(found instanceof ServerPlayer sp)) return;
+        player = sp;
+        if (player == null || player.isRemoved()) return;
+        ItemStack stack = findSword(player);
+        if (stack.isEmpty()) return;
+        YuanGodSwordConfig config = new YuanGodSwordConfig();
+        config.read(stack);
+        if (!config.rewindDeathEnabled) return;
+        YuanGodSwordConfig restoreConfig =
+                YuanTimeRewindRestorer.withEffectivePositionRewind(config, true);
+        // No one-health pre-load here, deliberately. The guard in YuanTimeRewindCheck forbids writing a
+// health value after the restore call: the snapshot already carries the health the player had at
+// the target tick, and overwriting it afterwards would replace the rewound value with the live
+// one. The one-health trick belongs only to the primary path, where the death event is CANCELLED
+// and the player must survive until playback catches up; a queued rescue runs with the lock free,
+// so restore() itself owns the health from the first frame.
+if (!YuanTimeRewindRestorer.restore(
+player.serverLevel(), restoreConfig, player, true, 1)) {
+player.displayClientMessage(
+Component.literal("\u00a7c[\u56de\u6eaf] \u81ea\u6551\u5931\u8d25\uff0c\u8bf7\u4f7f\u7528\u666e\u901a\u65b9\u5f0f\u590d\u6d3b"), true);
+}
     }
 
     private static void processPendingPlayback() {
@@ -251,7 +319,26 @@ public final class YuanTimeRewindEvents {
     @SubscribeEvent
     public static void onPlayerDeath(LivingDeathEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
-        if (YuanTimeRewindServerState.isRewinding()) return;
+
+        // A DEATH DURING ANOTHER PLAYER'S (OR ONE'S OWN) PLAYBACK.
+        //
+        // The old handler returned silently on isRewinding(), and that silence was the bug: the
+        // default camera mode does NOT freeze the trigger, so the trigger of a death rewind --
+        // sitting at 1 health for the whole playback -- could be hit again during those seconds and
+        // die with no second protection, no message, and the rewind lock still held. Now the ACTIVE
+        // player's death re-queues a rewind for themselves once playback ends; everyone else gets an
+        // explicit message instead of a silent death, because a protection that fails silently is
+        // indistinguishable from not having it.
+        if (YuanTimeRewindServerState.isRewinding()) {
+            UUID activeId = YuanTimeRewindServerState.getActivePlayerUuid();
+            if (player.getUUID().equals(activeId)) {
+                queuedSelfRescue = player.getUUID();
+                return;
+            }
+            player.displayClientMessage(
+                    Component.literal("\u00a77[回溯] 正在回溯中，死亡保护暂不可用"), true);
+            return;
+        }
         ItemStack stack = findSword(player);
         if (stack.isEmpty()) return;
         YuanGodSwordConfig config = new YuanGodSwordConfig();

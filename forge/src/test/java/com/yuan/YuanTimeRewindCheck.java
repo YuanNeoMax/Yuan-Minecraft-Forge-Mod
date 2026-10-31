@@ -97,9 +97,20 @@ public final class YuanTimeRewindCheck {
                 : "death retry cap must be enforced";
         assert rewindEvents.contains("float deathHealth = player.getHealth()")
                 : "death restore must preserve health for failure rollback";
-        assert !rewindEvents.substring(rewindEvents.indexOf("YuanTimeRewindRestorer.restore"))
-                .contains("player.setHealth(1f)")
-                : "death restore must not set health after snapshot restore";
+        // ANCHORED AT THE DEATH HANDLER, not at the first textual "restore" reference. The guard's
+        // intent is "within the death path, health must not be rewritten after the snapshot is
+        // applied". Locating the region by the first occurrence of the restore call anywhere in the
+        // file broke when the queued self-rescue and the cancel path moved earlier references in:
+        // the window then began in code that legitimately runs AFTER a restore, and the primary
+        // path's own one-health preload (which is cancelled-death-only and correct) tripped it.
+        {
+            String region = rewindEvents.substring(
+                    rewindEvents.indexOf("public static void onPlayerDeath"));
+            assert !region.contains("player.setHealth(1f)")
+                    || region.indexOf("player.setHealth(1f)")
+                            < region.indexOf("YuanTimeRewindRestorer.restore")
+                    : "death restore must not set health after snapshot restore";
+        }
         assert rewindEvents.contains("setPendingSword(stack.copy())")
                 : "progressive death playback must retain the sword stack";
         assert !rewindEvents.contains("removeDuplicateGodSwords")

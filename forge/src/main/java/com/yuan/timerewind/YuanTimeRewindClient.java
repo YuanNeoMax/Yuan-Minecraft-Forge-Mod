@@ -18,6 +18,22 @@ import net.minecraftforge.fml.common.Mod;
 public final class YuanTimeRewindClient {
     private static final double FLIGHT_SPEED = 0.30D;
 
+    /**
+     * WATCHDOG GRACE. The server sends an End packet when playback finishes; a client that never
+     * receives it -- disconnect mid-play, a dimension change eating the packet, a mod eating the
+     * channel -- would otherwise stay in the rewind state FOREVER: camera taken over, input locked,
+     * the playback filter stuck on screen, until the player reconnects. After the playback duration
+     * plus this margin, the client recovers on its own. {@link #onEnd} is idempotent, so a late End
+     * packet arriving after a self-recovery changes nothing.
+     */
+    private static final long END_GRACE_MILLIS = 1500L;
+    /**
+     * The same watchdog for the INSTANT playback mode, where {@code durationMillis} is 0 and there is
+     * no duration to measure against. The End packet for an instant rewind is sent within a tick or
+     * two of the Start, so a much shorter cap still leaves the real packet ample time.
+     */
+    private static final long NO_DURATION_END_MILLIS = 5000L;
+
     private static boolean active;
     private static boolean freeCamera;
     private static boolean freezeOthers;
@@ -181,6 +197,18 @@ public final class YuanTimeRewindClient {
     private static void tick() {
         if (!active) return;
         long now = System.currentTimeMillis();
+
+        // THE WATCHDOG, checked before anything else the state would act on. `isDone()` existed for
+        // this purpose and had no caller: with it unused, a lost End packet left the client in the
+        // rewind state permanently -- the audit's finding A. The cap is the playback duration plus a
+        // grace for the packet, or a fixed short cap in the instant mode where there is no duration.
+        long elapsed = now - startMillis;
+        long cap = durationMillis > 0L ? durationMillis + END_GRACE_MILLIS : NO_DURATION_END_MILLIS;
+        if (elapsed >= cap) {
+            onEnd();
+            return;
+        }
+
         double frameScale = lastFrameMillis == 0L
                 ? 1.0D
                 : Math.min(2.0D, (now - lastFrameMillis) / 50.0D);
@@ -304,6 +332,21 @@ public final class YuanTimeRewindClient {
     @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
     public static final class ClientTick {
         private ClientTick() {}
+
+        /**
+         * DROP EVERYTHING ON LOGOUT, including the camera takeover.
+         *
+         * <p>The watchdog covers a client left in the rewind state with no server talking to it, but
+         * it needs {@code duration + grace} to fire -- and a player who disconnects and reconnects
+         * FASTER than that re-enters a world where {@code freeCamera} is still true, so the camera
+         * mixin keeps cancelling Camera.setup against the OLD session's coordinates until the
+         * watchdog finally runs. Same pattern as YuanDomainClient: a session ends, its state ends
+         * with it. onEnd is idempotent, so this is safe even when nothing was running.
+         */
+        @SubscribeEvent
+        public static void onLogout(net.minecraftforge.client.event.ClientPlayerNetworkEvent.LoggingOut event) {
+            onEnd();
+        }
 
         @SubscribeEvent
         public static void onRenderTick(TickEvent.RenderTickEvent event) {

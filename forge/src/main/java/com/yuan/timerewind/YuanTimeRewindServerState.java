@@ -65,6 +65,20 @@ public final class YuanTimeRewindServerState {
         return activePlayerUuid;
     }
 
+    /**
+     * True while the ACTIVE player is inside their own playback with the trigger NOT frozen.
+     *
+     * <p>THE 1-HEALTH WINDOW. A death rewind sets the trigger to 1 health and then plays back for
+     * seconds; the default camera mode does not freeze them, so those seconds are exactly when a
+     * second hit kills for real -- with the rewind lock held and the death handler returning
+     * silently. The renderer/ai path applies this as a damage veto, which is cheaper and narrower
+     * than granting invulnerable tags that would have to be un-tagged afterwards.
+     */
+    public static boolean isTriggerUnprotected(UUID playerUuid) {
+        if (!isRewinding() || playerUuid == null) return false;
+        return playerUuid.equals(activePlayerUuid) && activeCameraMode != 1;
+    }
+
     public static boolean shouldFreezePlayer(Player player) {
         if (!isRewinding() || player == null || activePlayerUuid == null) return false;
         boolean trigger = player.getUUID().equals(activePlayerUuid);
