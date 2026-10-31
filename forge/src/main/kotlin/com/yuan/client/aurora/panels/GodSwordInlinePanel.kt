@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import com.yuan.client.aurora.anim.Motion
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -81,38 +84,43 @@ internal fun GodSwordInlinePanel(
     com.yuan.client.aurora.LocalLayoutRevision.current
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val twoColumns = maxWidth >= Star.duplicateColumnMinWidth
         val inner = Modifier.fillMaxSize().auroraScroll(rememberScrollState())
 
-        if (!twoColumns) {
-            Column(inner.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                groups.forEachIndexed { index, group ->
-                    EnterBlock(delayMs = staggerDelay(index), identity = group.id, enabled = staging, fromY = 6) {
-                        SectionBlock(group, holder, query, presetSlot, onPresetSlot, onPresetLoad,
-                            onPresetSave, onOpenGroup, onChanged)
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-            return@BoxWithConstraints
-        }
+        // THE ONE-COLUMN / TWO-COLUMN SWITCH IS A MORPH, NOT A BRANCH.
+        //
+        // It used to be `if (maxWidth >= 560.dp)` composing either a Column or a Row: crossing that
+        // line replaced every child in a single frame, which is the "硬切" that reads as a jump cut.
+        // Here the same children are placed by one interpolation, so the rearrangement is something
+        // the eye can follow.
+        //
+        // `morph` is animated rather than taken from the width directly, and that is the whole point:
+        // a window resize delivers its new width in one step, so a value derived from the width would
+        // also arrive in one step. The animation is what turns that step into a movement.
+        val target = if (maxWidth >= Star.duplicateColumnMinWidth) 1f else 0f
+        val morph = animateFloatAsState(
+            targetValue = target,
+            animationSpec = tween(Motion.dur(Motion.SLOW_MS), easing = Motion.enter),
+            label = "columnMorph"
+        )
 
-        // Two columns, filled in declaration order down the first before the second. Filling down rather
-        // than across keeps a section whole and keeps a reader's expectation -- the left column is the
-        // first half of the feature -- which filling across would break at the column boundary.
-        val half = (groups.size + 1) / 2
-        val columns = listOf(groups.take(half), groups.drop(half))
-        Row(inner.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            columns.forEachIndexed { columnIndex, columnGroups ->
-                Column(Modifier.weight(1f)) {
-                    columnGroups.forEachIndexed { index, group ->
-                        EnterBlock(delayMs = staggerDelay(index + columnIndex * half), identity = group.id, enabled = staging, fromY = 6) {
-                            SectionBlock(group, holder, query, presetSlot, onPresetSlot, onPresetLoad,
-                                onPresetSave, onOpenGroup, onChanged)
-                        }
-                    }
+        MorphingColumns(
+            groupCount = groups.size,
+            progress = morph,
+            modifier = inner.padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            // ONE list of children, in declaration order. The layout decides where each one sits;
+            // composing two different trees for the two arrangements is exactly what made the switch
+            // unfollowable.
+            groups.forEachIndexed { index, group ->
+                EnterBlock(
+                    delayMs = staggerDelay(index),
+                    identity = group.id,
+                    enabled = staging,
+                    fromY = 6
+                ) {
+                    SectionBlock(group, holder, query, presetSlot, onPresetSlot, onPresetLoad,
+                        onPresetSave, onOpenGroup, onChanged)
                 }
-                if (columnIndex == 0) Spacer(Modifier.width(20.dp))
             }
         }
     }

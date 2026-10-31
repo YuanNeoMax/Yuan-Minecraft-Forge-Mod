@@ -192,7 +192,6 @@ public final class YuanGodSwordConfigCheck {
         out.grayStrength = Float.NaN;        // non-finite falls back to min
         out.particleSize = 1_000_000f;       // far past the loose upper bound
         out.stopRadius = -1_000_000f;        // far past the loose lower bound
-        out.domainRadius = 1_000_000f;       // clamped at its read site (4..128 is a hard range)
         out.rewindScopeMode = 99;            // tail clamp 0..1
         out.rewindDeathMaxRetries = -5;      // tail clamp 0..100
 
@@ -207,8 +206,6 @@ public final class YuanGodSwordConfigCheck {
                 : "particleSize must stay inside the loose bound, got " + back.particleSize;
         assert Float.isFinite(back.stopRadius) && back.stopRadius >= 0f
                 : "stopRadius must stay inside the loose bound, got " + back.stopRadius;
-        assert back.domainRadius >= 4f && back.domainRadius <= 128f * 100f
-                : "domainRadius must stay inside its loose bound, got " + back.domainRadius;
         assert back.rewindScopeMode == 1
                 : "rewindScopeMode must clamp to 0..1, got " + back.rewindScopeMode;
         assert back.rewindDeathMaxRetries == 0
@@ -325,7 +322,6 @@ public final class YuanGodSwordConfigCheck {
         ranges.put("particleSize", new float[]{0.4f, 3f});
         ranges.put("stopRadius", new float[]{0f, 128f});
         ranges.put("rewindRadius", new float[]{0f, 1024f});
-        ranges.put("domainRadius", new float[]{4f, 128f});
         ranges.put("startDuration", new float[]{0.1f, 2f});
         ranges.put("endDuration", new float[]{0.1f, 2f});
         ranges.put("stopDuration", new float[]{0f, 60f});

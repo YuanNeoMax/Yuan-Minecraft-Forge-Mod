@@ -44,12 +44,23 @@ public class YuanKeyBindings {
     public static final KeyMapping TRIGGER_DOMAIN = new KeyMapping(
         "key.yuan.domain_trigger", KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, "key.categories.yuan");
 
+    /**
+     * Opens the god sword's Aurora configuration window.
+     *
+     * <p>Was a temporary blur-pipeline test binding during the interface's build-out; now it is the
+     * real entry point, which is why the name survives rather than being renamed: the lang entry that
+     * labels it in the controls screen is keyed on it, and a rename would silently drop the label.
+     */
+    public static final KeyMapping AURORA_POC = new KeyMapping(
+        "key.yuan.aurora_poc", KeyConflictContext.IN_GAME, InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_B, "key.categories.yuan");
+
     @SubscribeEvent
     public static void register(RegisterKeyMappingsEvent event) {
         event.register(OPEN_CONFIG);
         event.register(TRIGGER_TIMESTOP);
         event.register(TRIGGER_REWIND);
         event.register(TRIGGER_DOMAIN);
+        event.register(AURORA_POC);
     }
 
     @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
@@ -62,15 +73,28 @@ public class YuanKeyBindings {
             int triggerClicks = 0;
             int rewindClicks = 0;
             int domainClicks = 0;
+            int auroraClicks = 0;
             while (OPEN_CONFIG.consumeClick()) configClicks++;
             while (TRIGGER_TIMESTOP.consumeClick()) triggerClicks++;
             while (TRIGGER_REWIND.consumeClick()) rewindClicks++;
             while (TRIGGER_DOMAIN.consumeClick()) domainClicks++;
+            while (AURORA_POC.consumeClick()) auroraClicks++;
             if (mc.player == null) return;
             // 进世界后预热 Compose/Skiko，避免首次打开界面卡 1 秒
             YuanComposeTestScreen.warmupIfNeeded();
             ItemStack stack = mc.player.getMainHandItem();
             ItemStack offhand = mc.player.getOffhandItem();
+            // B opens the sword's Aurora configuration window. It needs the god sword in hand, because
+            // the window edits that sword's own config -- opening against nothing would present a
+            // settings page whose save has nowhere to go.
+            if (mc.screen == null && auroraClicks > 0) {
+                if (stack.getItem() instanceof YuanGodSwordItem) {
+                    mc.setScreen(new com.yuan.client.aurora.AuroraGodSwordScreen(stack));
+                } else {
+                    mc.player.displayClientMessage(Component.literal("§c✦ 需要手持神器之刃"), true);
+                }
+                return;
+            }
             if (mc.screen == null && rewindClicks > 0 && hasGodSwordInInventory(mc.player)) {
                 if (YuanTimeRewindClient.isActive()) {
                     Yuan.CHANNEL.sendToServer(new YuanTimeRewindCancelPacket());

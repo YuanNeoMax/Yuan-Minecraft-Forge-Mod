@@ -37,11 +37,10 @@ public class YuanDomainRequestPacket {
             if (!config.enabled) {
                 return;
             }
-            boolean active = YuanDomainServerState.toggle(sender.getUUID(), config.domainRadius);
-            YuanDomainServerState.broadcast(sender.getUUID(), active, config.domainRadius,
-                    config.domainStarfield);
-            LOGGER.info("domain {} by {} radius={}", active ? "expanded" : "collapsed",
-                    sender.getGameProfile().getName(), String.format(java.util.Locale.ROOT, "%.1f", config.domainRadius));
+            boolean active = YuanDomainServerState.toggle(sender.getUUID());
+            YuanDomainServerState.broadcast(sender.getUUID(), active, config.domainStarfield);
+            LOGGER.info("domain {} by {}", active ? "expanded" : "collapsed",
+                    sender.getGameProfile().getName());
             sender.displayClientMessage(Component.literal(active ? "§c✦ 领域展开" : "§c✦ 领域收束"), true);
         });
         context.get().setPacketHandled(true);

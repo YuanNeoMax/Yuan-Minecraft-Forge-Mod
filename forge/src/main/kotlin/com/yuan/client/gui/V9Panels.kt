@@ -106,7 +106,6 @@ internal fun V9TimestopRow(
             "particleAlpha" -> state.particleAlpha
             "particleCount" -> state.particleCount.toFloat()
             "particleSpin" -> state.particleSpin
-            "domainRadius" -> state.domainRadius
             else -> state.stopRadius
         } },
         when (row.id) {
@@ -118,7 +117,6 @@ internal fun V9TimestopRow(
             "particleAlpha" -> 0.1f
             "particleCount" -> 1f
             "particleSpin" -> 0f
-            "domainRadius" -> 4f
             else -> 0.1f
         },
         when (row.id) {
@@ -130,7 +128,6 @@ internal fun V9TimestopRow(
             "particleAlpha" -> 1f
             "particleCount" -> 16f
             "particleSpin" -> 3f
-            "domainRadius" -> 128f
             else -> 2f
         },
         when (row.id) {
@@ -143,7 +140,6 @@ internal fun V9TimestopRow(
             "particleCount" -> { v -> "${v.toInt()} 个" }
             "particleSpin" -> { v -> String.format(java.util.Locale.ROOT, "%.2f", v) }
             "stopRadius" -> { v -> if (v <= 0f) "全场" else String.format(java.util.Locale.ROOT, "%.0f 格", v) }
-            "domainRadius" -> { v -> String.format(java.util.Locale.ROOT, "%.0f 格", v) }
             else -> { v -> String.format(java.util.Locale.ROOT, "%.1fs", v) }
         }
     ) { onSlider(row.id, it) }

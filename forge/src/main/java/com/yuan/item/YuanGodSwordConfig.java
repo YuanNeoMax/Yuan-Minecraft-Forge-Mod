@@ -190,10 +190,9 @@ public final class YuanGodSwordConfig {
     public String uiSwitchTextOn = "On";
     public String uiSwitchTextOff = "Off";
 
-    // 领域半径同时决定：地面网格的真实截止、术式架尺寸、后处理强度衰减范围
-    public float domainRadius = 20f;
-
     // 星渊地面：地形表面被星海替换。关闭时领域只剩其它层（天穹/术式架）。
+    // 半径滑块已删除（2026-10-11 用户选定）：星渊是全屏后处理，覆盖到视界，
+    // 没有半径可言；转速见 domain_starfield_post.fsh 的 SPIN = 1.28/128。
     public boolean domainStarfield = true;
 
     /**
@@ -356,7 +355,6 @@ public final class YuanGodSwordConfig {
         if (tag.contains("uiSwitchWidth")) uiSwitchWidth = clamp(tag.getFloat("uiSwitchWidth"), 54f, 80f);
         if (tag.contains("uiSwitchHeight")) uiSwitchHeight = clamp(tag.getFloat("uiSwitchHeight"), 24f, 32f);
         if (tag.contains("uiSwitchKnob")) uiSwitchKnob = clamp(tag.getFloat("uiSwitchKnob"), 16f, 24f);
-        if (tag.contains("domainRadius")) domainRadius = clamp(tag.getFloat("domainRadius"), 4f, 128f);
         startAnim = Math.max(0, Math.min(2, startAnim));
         endAnim = Math.max(0, Math.min(1, endAnim));
         ballColor = Math.max(0, Math.min(7, ballColor));

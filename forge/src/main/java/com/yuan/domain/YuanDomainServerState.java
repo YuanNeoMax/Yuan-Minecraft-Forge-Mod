@@ -13,16 +13,16 @@ import net.minecraftforge.network.PacketDistributor;
 
 @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class YuanDomainServerState {
-    private static final Map<UUID, Float> ACTIVE = new HashMap<>();
+    private static final Map<UUID, Boolean> ACTIVE = new HashMap<>();
 
     private YuanDomainServerState() {
     }
 
-    public static synchronized boolean toggle(UUID holder, float radius) {
+    public static synchronized boolean toggle(UUID holder) {
         if (ACTIVE.remove(holder) != null) {
             return false;
         }
-        ACTIVE.put(holder, radius);
+        ACTIVE.put(holder, Boolean.TRUE);
         return true;
     }
 
@@ -30,9 +30,9 @@ public final class YuanDomainServerState {
         return ACTIVE.containsKey(holder);
     }
 
-    public static void broadcast(UUID holder, boolean active, float radius, boolean starfield) {
+    public static void broadcast(UUID holder, boolean active, boolean starfield) {
         Yuan.CHANNEL.send(PacketDistributor.ALL.noArg(),
-                new YuanDomainStatePacket(holder, active, radius, starfield));
+                new YuanDomainStatePacket(holder, active, starfield));
     }
 
     @SubscribeEvent
@@ -40,7 +40,7 @@ public final class YuanDomainServerState {
         Player player = event.getEntity();
         if (ACTIVE.remove(player.getUUID()) != null) {
             // The star-field flag is irrelevant on a deactivation, but the packet shape is fixed.
-            broadcast(player.getUUID(), false, 0.0f, false);
+            broadcast(player.getUUID(), false, false);
         }
     }
 

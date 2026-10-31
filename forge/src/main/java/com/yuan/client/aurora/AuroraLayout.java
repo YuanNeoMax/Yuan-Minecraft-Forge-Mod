@@ -134,6 +134,7 @@ public final class AuroraLayout {
     public MotionLevel motion = MotionLevel.FULL;
     /** Background blur strength, 0..1. Zero leaves the world sharp behind the panels. */
     public float backdropBlur = 1.0f;
+
     /** Depth parallax strength, 0..1. Zero pins every layer. */
     public float parallax = 1.0f;
 
@@ -501,11 +502,55 @@ public final class AuroraLayout {
         }
     }
 
+    /** The glass presets. {@link #shellAlpha} and {@link #panelAlpha} are the numbers each one sets. */
+    public enum GlassLevel {
+        /** Opaque: the world is fully hidden. The pre-glass look, kept for readability. */
+        OFF("不透明", 0.95f, 1.0f, 0.00f),
+        /** A hint of the world through the edges. */
+        LIGHT("轻", 0.82f, 0.90f, 0.45f),
+        /** The default: the blur is clearly visible but text keeps its ground. */
+        MEDIUM("中", 0.66f, 0.78f, 0.75f),
+        /** Strong: the reference look. Contrast must be re-checked at this level. */
+        STRONG("强", 0.52f, 0.66f, 1.00f);
+
+        public final String label;
+        /** Alpha for the shell, the window's own surface. */
+        public final float shellAlpha;
+        /** Alpha for a floating panel, which sits above the shell and must stay distinct from it. */
+        public final float panelAlpha;
+        /** Blur strength this level asks for; scaled by the player's own blur slider. */
+        public final float blur;
+
+        GlassLevel(String label, float shellAlpha, float panelAlpha, float blur) {
+            this.label = label;
+            this.shellAlpha = shellAlpha;
+            this.panelAlpha = panelAlpha;
+            this.blur = blur;
+        }
+    }
+
     /** Movable and repaintable values: the rail, a panel, and the shell around them. */
     public static final class Look {
         // ---- rail ----
         /** Width in dp. */
         public float railWidth = 168f;
+
+    /**
+     * How much of the blurred world shows through the window's surfaces.
+     *
+     * <p>WHY THIS IS A PRESET AND NOT A SEPARATE OPACITY SLIDER. Glassiness is the product of two
+     * numbers -- how transparent a surface is, and how strongly what is behind it is blurred -- and
+     * they only read as glass together. Transparent over a sharp background looks like a bug (text
+     * fights the world); opaque over a heavy blur is just a dark panel. Exposing them separately
+     * invites exactly those two failures, so one choice sets both and the pairs are tuned here.
+     *
+     * <p>The blur is applied by {@code AuroraFx} to the whole backdrop, so it cannot follow a panel's
+     * own rectangle -- this is frosted-at-the-screen rather than per-panel refraction. What makes it
+     * read as material instead of as a grey wash is that the surfaces are translucent enough to show
+     * the blur, and their borders are lit (see {@code Star.glassEdge}).
+     */
+    public GlassLevel glass = GlassLevel.MEDIUM;
+
         /** Height of one rail entry, in dp. */
         public float railItemHeight = 36f;
         /** Rail entry corner radius, in dp. */

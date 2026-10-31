@@ -67,6 +67,22 @@ internal fun AuroraSettingsPanel(
                 AuroraToggle(layout.autoScale, { layout.autoScale = it; onChanged() })
             }
         }
+        // GLASS BEFORE BLUR, in the reading order of cause and effect: the preset decides how much
+        // of the world shows through, and the blur slider decides how that world looks. Presenting
+        // the blur first would invite tuning a value whose visible effect is set by the control
+        // underneath it.
+        AuroraRow("玻璃材质", "面板的通透程度；与背景模糊配合生效") {
+            AuroraSegments(
+                options = AuroraLayout.GlassLevel.values().map { it.ordinal },
+                selected = layout.look.glass.ordinal,
+                onSelect = {
+                    layout.look.glass = AuroraLayout.GlassLevel.values()[it]
+                    onChanged()
+                },
+                label = { AuroraLayout.GlassLevel.values()[it].label },
+                width = CONTROL_WIDTH
+            )
+        }
         AuroraRow("背景模糊", "为 0 时世界保持清晰") {
             AuroraSlider(
                 value = layout.backdropBlur,

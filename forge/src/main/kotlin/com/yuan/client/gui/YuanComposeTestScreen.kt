@@ -735,7 +735,6 @@ internal fun ComposeTestContent(
                 "particleCount" -> holder.particleCount = v.toInt()
                 "particleSpin" -> holder.particleSpin = v
                 "stopRadius" -> holder.stopRadius = v
-                "domainRadius" -> holder.domainRadius = v
                 "slashDuration" -> holder.slashDuration = v
                 "slashLengthMult" -> holder.slashLengthMult = v
                 "slashWidthRatio" -> holder.slashWidthRatio = v
@@ -1137,7 +1136,6 @@ internal fun ComposeTestContent(
             holder.uiSwitchTextColor = defaults.uiSwitchTextColor
             holder.uiSwitchTextOn = defaults.uiSwitchTextOn
             holder.uiSwitchTextOff = defaults.uiSwitchTextOff
-            holder.domainRadius = defaults.domainRadius
             holder.domainStarfield = defaults.domainStarfield
             markDirty()
         }

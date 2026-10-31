@@ -13,14 +13,14 @@ import net.minecraftforge.fml.common.Mod;
  * Client-side mirror of every active domain.
  *
  * <p>Keyed by holder rather than being one global: domains are per-player and several can be open at
- * once. The star-field flag travels with the radius because the toggle lives on the holder's sword,
- * which this client cannot read for anyone but itself.
+ * once. The star-field flag travels in its own packet because the toggle lives on the holder's
+ * sword, which this client cannot read for anyone but itself.
  */
 @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
 public final class YuanDomainClient {
 
-    /** One holder's domain: radius in blocks, and whether the star-field floor is on. */
-    public record Entry(float radius, boolean starfield) {
+    /** One holder's domain: whether the star-field floor is on. */
+    public record Entry(boolean starfield) {
     }
 
     private static final Map<UUID, Entry> ACTIVE = new HashMap<>();
@@ -29,9 +29,9 @@ public final class YuanDomainClient {
     private YuanDomainClient() {
     }
 
-    public static void apply(UUID holder, boolean active, float radius, boolean starfield) {
+    public static void apply(UUID holder, boolean active, boolean starfield) {
         if (active) {
-            ACTIVE.put(holder, new Entry(radius, starfield));
+            ACTIVE.put(holder, new Entry(starfield));
         } else {
             ACTIVE.remove(holder);
         }
@@ -43,11 +43,6 @@ public final class YuanDomainClient {
 
     public static boolean isActive(UUID holder) {
         return ACTIVE.containsKey(holder);
-    }
-
-    public static float radiusOf(UUID holder) {
-        Entry entry = ACTIVE.get(holder);
-        return entry == null ? 0.0f : entry.radius();
     }
 
     /** Whether this holder has the star-field floor switched on. */

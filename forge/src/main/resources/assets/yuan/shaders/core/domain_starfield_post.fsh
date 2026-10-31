@@ -41,11 +41,13 @@ const float CELL = 1.0;          // one star cell per block
 const float STAR_RADIUS = 0.13;  // star half-size within its cell
 const float TWINKLE_HZ = 0.35;
 
-// Radians per second. The field turns rigidly about the caster, so a point R blocks out travels
-// R * SPIN blocks per second and the horizon is the fastest part of the image. At 0.01 that is ~2
-// blocks per second at 200 blocks out -- visible motion underfoot, and not a lurch at the horizon.
+// Radians per second. The field turns rigidly about the world origin, so a point R blocks out
+// travels R * SPIN blocks per second and the horizon is the fastest part of the image. SPIN scales
+// inversely with the domain radius R: SPIN = 1.28 / R. The radius slider was removed (fixed at
+// R = 128), so the value is pinned at 1.28 / 128 = 0.01 -- ~2 blocks per second at 200 blocks out,
+// visible motion underfoot, and not a lurch at the horizon.
 // The value that reads well in a small circle is nausea once the floor reaches the fog.
-const float SPIN = 0.01;
+const float SPIN = 1.28 / 128.0;
 
 // Distance over which the glow around the caster falls off, in blocks. This is the only thing left
 // that has a size at all; the floor itself extends to the horizon.

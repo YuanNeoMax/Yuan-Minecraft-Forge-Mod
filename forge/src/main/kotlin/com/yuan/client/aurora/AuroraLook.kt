@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 
 /**
  * The arrangement layer's live view over [AuroraLayout.Look].
@@ -93,7 +94,8 @@ internal class AuroraLook(private val layout: AuroraLayout) {
 
     // ---- panel ----
     val panelCorner: Dp @Composable get() = look().panelCorner.dp
-    val panelBg: Color @Composable get() = Color(look().panelBg)
+    /** The panel surface, with its alpha taken from the glass preset. See [glassAlpha]. */
+    val panelBg: Color @Composable get() = glassAlpha(look().panelBg, look().glass.panelAlpha)
     val panelBorderColor: Color @Composable get() = Color(look().panelBorderColor)
     val panelBorderWidth: Dp @Composable get() = look().panelBorderWidth.dp
     val panelHeaderHeight: Dp @Composable get() = look().panelHeaderHeight.dp
@@ -106,8 +108,8 @@ internal class AuroraLook(private val layout: AuroraLayout) {
     // ---- shell ----
     val shellInset: Dp @Composable get() = look().shellInset.dp
     val shellCorner: Dp @Composable get() = look().shellCorner.dp
-    val shellBgTop: Color @Composable get() = Color(look().shellBgTop)
-    val shellBgBottom: Color @Composable get() = Color(look().shellBgBottom)
+    val shellBgTop: Color @Composable get() = glassAlpha(look().shellBgTop, look().glass.shellAlpha)
+    val shellBgBottom: Color @Composable get() = glassAlpha(look().shellBgBottom, look().glass.shellAlpha)
     val shellBorderColor: Color @Composable get() = Color(look().shellBorderColor)
     val shellBorderWidth: Dp @Composable get() = look().shellBorderWidth.dp
     val headerHeight: Dp @Composable get() = look().headerHeight.dp
@@ -119,4 +121,22 @@ internal class AuroraLook(private val layout: AuroraLayout) {
     val accent: Color @Composable get() = Color(look().accent)
     val trackColor: Color @Composable get() = Color(look().trackColor)
     val accentDim: Color @Composable get() = Color(look().accentDim)
+}
+
+/**
+ * A packed surface colour with its alpha REPLACED by the glass preset's.
+ *
+ * <p>The preset owns opacity; the stored colour owns hue. Keeping them apart is what lets one choice
+ * ("how glassy") be a single control while the palette stays a separate one -- and it is why the
+ * stored `shellBgTop`/`panelBg` values keep their old, near-opaque alphas: they are read as RGB here
+ * and their alpha is discarded. An existing `aurora.json` therefore renders correctly under every
+ * preset without being migrated.
+ *
+ * <p>Only these surfaces are affected. Rows, wells, borders and text keep the alphas in the palette:
+ * those are not glass, they are marks ON the glass, and fading them would take away the contrast the
+ * palette was tuned to provide.
+ */
+private fun glassAlpha(packed: Int, alpha: Float): Color {
+    val a = (alpha.coerceIn(0f, 1f) * 255f).roundToInt() and 0xFF
+    return Color((packed and 0x00FFFFFF) or (a shl 24))
 }

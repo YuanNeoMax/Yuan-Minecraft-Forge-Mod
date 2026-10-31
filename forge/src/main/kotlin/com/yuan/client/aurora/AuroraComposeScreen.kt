@@ -240,11 +240,18 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
      */
     private fun blurBackdrop(mc: Minecraft) {
         val main = mc.mainRenderTarget ?: return
-        if (layout.backdropBlur <= 0.01f) {
+        // THE GLASS PRESET SCALES THE BLUR, and that coupling is the point of having a preset at all.
+        //
+        // Transparency and blur only read as glass together: a translucent surface over a sharp world
+        // is a legibility problem, and a heavy blur behind an opaque surface is invisible work -- the
+        // player pays for a full-screen pass and sees a dark panel. The slider remains the player's
+        // strength; the preset is the multiplier that makes it meaningful at that level of opacity.
+        val strength = layout.backdropBlur * layout.look.glass.blur
+        if (strength <= 0.01f) {
             AuroraFx.fillFallback(main, backdropDim)
             return
         }
-        if (!AuroraFx.apply(main, backdropDim * layout.backdropBlur)) {
+        if (!AuroraFx.apply(main, backdropDim * strength)) {
             AuroraFx.fillFallback(main, backdropDim)
         }
     }

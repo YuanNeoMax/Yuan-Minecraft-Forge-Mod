@@ -175,7 +175,6 @@ internal class V9Holder(initial: V9State) {
     var uiSwitchTextColor: Int by mutableStateOf(initial.uiSwitchTextColor)
     var uiSwitchTextOn: String by mutableStateOf(initial.uiSwitchTextOn)
     var uiSwitchTextOff: String by mutableStateOf(initial.uiSwitchTextOff)
-    var domainRadius: Float by mutableStateOf(initial.domainRadius)
     var domainStarfield: Boolean by mutableStateOf(initial.domainStarfield)
     var rewindEnabled: Boolean by mutableStateOf(initial.rewindEnabled)
     var rewindWindowSeconds: Int by mutableStateOf(initial.rewindWindowSeconds)
@@ -344,7 +343,6 @@ internal class V9Holder(initial: V9State) {
         uiSwitchTextColor = uiSwitchTextColor,
         uiSwitchTextOn = uiSwitchTextOn,
         uiSwitchTextOff = uiSwitchTextOff,
-        domainRadius = domainRadius,
         domainStarfield = domainStarfield,
         rewindEnabled = rewindEnabled,
         rewindWindowSeconds = rewindWindowSeconds,
@@ -514,7 +512,6 @@ internal class V9Holder(initial: V9State) {
         uiSwitchTextColor = s.uiSwitchTextColor
         uiSwitchTextOn = s.uiSwitchTextOn
         uiSwitchTextOff = s.uiSwitchTextOff
-        domainRadius = s.domainRadius
         domainStarfield = s.domainStarfield
         rewindEnabled = s.rewindEnabled
         rewindWindowSeconds = s.rewindWindowSeconds

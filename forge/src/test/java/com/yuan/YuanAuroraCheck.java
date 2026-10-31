@@ -819,8 +819,33 @@ public final class YuanAuroraCheck {
                 : "only a section holding a multi-part control may open its own panel";
         assert inlineSrc.contains("BoxWithConstraints") && inlineSrc.contains("duplicateColumnMinWidth")
                 : "the content area must lay out its two columns from the measured width in Dp";
-        assert inlineSrc.contains("groups.take(half)") && inlineSrc.contains("groups.drop(half)")
+        // THE SWITCH IS A MORPH, NOT A BRANCH.
+        //
+        // It used to compose either a Column or a Row depending on the width, which replaced every
+        // child in a single frame -- the "硬切". `groups.take(half)` / `groups.drop(half)` existed
+        // only because there were two trees; now one list is placed by one interpolation, and the
+        // split lives inside MorphingColumns.
+        //
+        // The properties worth guarding are therefore: the switch is ANIMATED (a value derived
+        // straight from the width arrives in one step, because a resize IS one step), and the
+        // children are still ONE list (two trees is the bug).
+        assert inlineSrc.contains("animateFloatAsState(")
+                && inlineSrc.contains("label = \"columnMorph\"")
+                : "the column switch must be animated; a width-derived value arrives in one step";
+        assert inlineSrc.contains("MorphingColumns(")
+                : "the columns must be laid out by the morphing layout";
+        assert !inlineSrc.contains("groups.take(half)")
+                : "two separately composed trees cannot be eased between; use one child list";
+        String morph = Files.readString(Path.of(
+                "src/main/kotlin/com/yuan/client/aurora/panels/MorphingColumns.kt"));
+        // Fill DOWN: the split point is the first ceil(n/2), so a section is never cut in two.
+        assert morph.contains("val half = (total + 1) / 2")
                 : "columns must fill down rather than across, so a section stays whole";
+        // The progress is read in COMPOSITION. A State read inside MeasureScope sits outside the
+        // snapshot observer, so the layout never learns it changed -- the morph would be present,
+        // plausible, and motionless.
+        assert morph.contains("val p = progress.value.coerceIn(0f, 1f)")
+                : "the morph progress must be read where a change is observed";
         String modules = Files.readString(Path.of(
                 "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordModules.kt"));
         assert modules.contains("internal fun groupNeedsPopup(")
