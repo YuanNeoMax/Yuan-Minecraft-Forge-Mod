@@ -245,9 +245,16 @@ public final class YuanTimeRewindEvents {
         long windowTicks = 20L * maxWindowSeconds;
         for (ServerLevel level : event.getServer().getAllLevels()) {
             YuanTimeRewindRecorder recorder = RECORDERS.get(level);
-            if (recorder == null || recorder.windowTicks() < windowTicks) {
+            if (recorder == null) {
                 recorder = new YuanTimeRewindRecorder(level, windowTicks);
                 RECORDERS.put(level, recorder);
+            } else if (recorder.windowTicks() < windowTicks) {
+                // WIDEN IN PLACE, never replace. Rebuilding threw away every recorded tick,
+                // the first-seen registry and the container/entity baselines: the first scan
+                // after a swap compared against nothing, and the next rewind deleted
+                // standing-still entities as newly created. A larger window extends the
+                // recording, it does not start a new one.
+                recorder.widenWindow(windowTicks);
             }
             recorder.tick(level.getGameTime());
         }

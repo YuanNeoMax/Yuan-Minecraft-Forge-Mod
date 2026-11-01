@@ -230,6 +230,39 @@ public final class YuanTimeRewindCheck {
                     : "the prune must be driven by the walk that produced the baselines";
         }
 
+        // ---- a larger window EXTENDS the recording, it does not restart it -------------
+        // The recorder used to be rebuilt whenever a bigger window appeared -- discarding every
+        // recorded tick, the first-seen registry (so standing-still entities looked newly created
+        // and were DELETED on the next rewind) and the container/entity baselines (so the first
+        // delta after the swap compared against nothing).
+        {
+            String evSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindEvents.java"));
+            assert evSrc.contains("recorder.widenWindow(windowTicks)")
+                    : "a larger window must widen the recorder, not replace it";
+            assert !evSrc.contains("if (recorder == null || recorder.windowTicks() < windowTicks)")
+                    : "the rebuild-on-growth branch must be gone";
+
+            String recSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindRecorder.java"));
+            assert recSrc.contains("public void widenWindow(long newWindowTicks)")
+                    : "the recorder must expose an in-place widen";
+            // The history has to grow too, or the recorder would claim a window it cannot hold.
+            assert recSrc.contains("history.widenWindow(")
+                    : "widening the recorder must widen its history";
+
+            String histSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/RewindHistory.java"));
+            assert histSrc.contains("public synchronized void widenWindow(long newWindowTicks)")
+                    : "the history must support a widening";
+            // GROW ONLY. A shrink would let a rewind promise a reach further back than the data it
+            // still holds, silently restoring an older state than asked for.
+            assert histSrc.contains("if (newWindowTicks > windowTicks)")
+                    : "the retention window may only grow";
+            assert !histSrc.contains("private final long windowTicks")
+                    : "the window must be movable for the in-place widen to work";
+        }
+
         assert rewindEvents.contains("shouldAttemptDeathRewind") : "death retry cap helper missing";
         assert rewindEvents.contains("shouldAttemptDeathRewind(retry")
                 : "death retry cap must be enforced";

@@ -53,7 +53,7 @@ public final class YuanTimeRewindRecorder {
     public record PlayerSnapshot(long tick, UUID uuid, ResourceKey<Level> dimension, CompoundTag nbt) {}
 
     private final ServerLevel level;
-    private final long windowTicks;
+    private long windowTicks;
     private final RewindHistory history;
     private final Map<BlockPos, CompoundTag> lastBlockEntity = new HashMap<>();
     private final Map<UUID, CompoundTag> lastEntityNbt = new HashMap<>();
@@ -78,6 +78,19 @@ public final class YuanTimeRewindRecorder {
 
     public long windowTicks() {
         return windowTicks;
+    }
+
+    /**
+     * Widens this recorder in place, keeping its history and every registry.
+     *
+     * <p>A new recorder used to be constructed instead, which lost the recorded ticks, the
+     * first-seen registry (so idle entities looked newly created and were deleted on the next
+     * rewind) and the container/entity baselines (so the first delta after the swap compared
+     * against nothing).
+     */
+    public void widenWindow(long newWindowTicks) {
+        this.windowTicks = Math.max(this.windowTicks, newWindowTicks);
+        this.history.widenWindow(this.windowTicks + BASELINE_MARGIN_TICKS);
     }
 
     public Long entityFirstSeenTick(UUID uuid) {
