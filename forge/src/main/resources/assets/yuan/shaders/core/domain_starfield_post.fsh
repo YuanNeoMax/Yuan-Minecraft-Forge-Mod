@@ -53,6 +53,10 @@ const float SPIN = 1.28 / 128.0;
 // that has a size at all; the floor itself extends to the horizon.
 const float CORE_RADIUS = 48.0;
 
+// How far a ring travels before it dissolves, in blocks. Slightly beyond CORE_RADIUS so the rings
+// leave the glow before they fade out -- a ring dying inside the lit area is invisible.
+const float RING_MAX_RADIUS = 62.0;
+
 float hash11(float p) {
     p = fract(p * 0.1031);
     p *= p + 33.33;
@@ -70,6 +74,58 @@ vec2 hash22(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
     p3 += dot(p3, p3.yzx + 33.33);
     return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+/**
+ * Smoothed value noise, 0..1.
+ *
+ * <p>Three octaves are enough for a slow, drifting cloud: the nebula sits UNDER the stars and is
+ * meant to be noticed second, so it wants broad soft shapes rather than detail. Detail at this scale
+ * would read as static once the field rotates.
+ */
+float nebula(vec2 p) {
+    float sum = 0.0;
+    float amp = 0.5;
+    float freq = 1.0;
+    for (int i = 0; i < 3; i++) {
+        vec2 cell = floor(p * freq);
+        vec2 f = fract(p * freq);
+        // Smoothstep interpolation rather than linear: linear leaves the lattice visible as
+        // diamond-shaped creases between cells.
+        vec2 w = f * f * (3.0 - 2.0 * f);
+        float a = hash21(cell);
+        float b = hash21(cell + vec2(1.0, 0.0));
+        float c = hash21(cell + vec2(0.0, 1.0));
+        float d = hash21(cell + vec2(1.0, 1.0));
+        sum += amp * mix(mix(a, b, w.x), mix(c, d, w.x), w.y);
+        amp *= 0.5;
+        freq *= 2.03;
+    }
+    return sum;
+}
+
+/**
+ * A four-point diffraction spike, 0..1, from the star's centred distance.
+ *
+ * <p>Real starlight through an aperture throws a cross, and it is the single detail that separates
+ * "a dot in a grid" from "a star". The arms are thin and fall off fast (pow 6) so they read as
+ * glints rather than as a glow, and the diagonal pair is deliberately absent -- six-point spikes at
+ * this density would turn the floor into a carpet of fireworks.
+ *
+ * <p>[arm] is the distance projected onto one axis, [along] the distance along the other; a tap is
+ * only sharp when its arm is near zero AND it is close to the star, which is exactly the cross shape.
+ */
+float starSpike(vec2 d, float reach) {
+    float armX = abs(d.y);   // thin in y -> a horizontal arm
+    float armY = abs(d.x);   // thin in x -> a vertical arm
+    float lenX = abs(d.x);
+    float lenY = abs(d.y);
+    if (lenX > reach && lenY > reach) return 0.0;
+    float hx = (lenY > reach) ? 0.0 : pow(clamp(1.0 - armX / (STAR_RADIUS * 0.42), 0.0, 1.0), 1.4)
+             * pow(clamp(1.0 - lenX / reach, 0.0, 1.0), 3.0);
+    float vy = (lenX > reach) ? 0.0 : pow(clamp(1.0 - armY / (STAR_RADIUS * 0.42), 0.0, 1.0), 1.4)
+             * pow(clamp(1.0 - lenY / reach, 0.0, 1.0), 3.0);
+    return clamp(hx + vy, 0.0, 1.0);
 }
 
 void main() {
@@ -136,16 +192,37 @@ void main() {
     float present = hash21(cell * 1.37 + domainSeed);
 
     float star = 0.0;
+    float spike = 0.0;
     if (present > 0.74) {          // ~26% of cells hold a star
-        float d = length(local - o);
+        vec2 dv = local - o;
+        float d = length(dv);
         float core = 1.0 - smoothstep(STAR_RADIUS * 0.3, STAR_RADIUS, d);
         float phase = hash11(dot(cell, vec2(12.9898, 78.233)) + domainSeed);
         float tw = 0.65 + 0.35 * sin(time * TWINKLE_HZ * 6.2831 + phase * 6.2831);
         star = core * tw;
+
+        // SPIKES ONLY ON THE BRIGHT ONES. Every star getting a cross would make the floor busy and
+        // flatten the difference between an ordinary star and a bright one -- the cross is what
+        // marks the few that are worth looking at. `present` doubles as the per-cell seed here, so
+        // the same cells stay bright as the field turns rather than flickering between roles.
+        if (present > 0.93) {
+            // The spike belongs to the brighter half of the twinkle, so it blooms and fades with
+            // its star instead of sitting at constant strength over a dimming core.
+            spike = starSpike(dv, STAR_RADIUS * 6.5) * tw;
+        }
     }
 
     // ---- abyss body -----------------------------------------------------------
-    vec3 col = domainColorBase.rgb;
+    // A drifting nebula UNDER the star field: broad, soft, slow. It gives the floor the depth a
+    // flat colour cannot -- the abyss is meant to look like something with volume, not a painted
+    // plane -- while staying low-contrast enough that it never competes with the stars.
+    //
+    // Sampled in the SAME rotated space as the stars, so it turns with the field instead of
+    // sliding underneath it. A different rate would read as two layers fighting.
+    float cloud = nebula(samplePos * 0.045 + domainSeed);
+    float cloud2 = nebula(samplePos * 0.012 - domainSeed * 0.5);
+    vec3 col = domainColorBase.rgb
+            + domainColorStar.rgb * (cloud * 0.055 + cloud2 * 0.035);
 
     // A glow around the caster, so the domain reads as sourced from them rather than as a global
     // filter. This is the one thing that still has a size of its own, and the one place the caster's
@@ -153,17 +230,51 @@ void main() {
     // separate variable from the grid -- collapsing the two back into one is how the field ended up
     // sliding with the player last time.
     vec2 fromCaster = worldPos.xz - DomainCenter.xz;
-    float core = pow(clamp(1.0 - length(fromCaster) / CORE_RADIUS, 0.0, 1.0), 2.2);
+    float distFromCaster = length(fromCaster);
+    float core = pow(clamp(1.0 - distFromCaster / CORE_RADIUS, 0.0, 1.0), 2.2);
     col += domainColorCore.rgb * core * domainColorCore.a;
 
+    // ---- RINGS AROUND THE CASTER ------------------------------------------------------------
+    // Three thin rings expanding outward, each fading as it travels. This is the one part of the
+    // effect that MOVES toward the player rather than turning around them, and that is deliberate:
+    // a rotating field with a static centre reads as a backdrop, while rings leaving the caster read
+    // as something being emitted. It is the difference between "the ground is a star field" and
+    // "THE CASTER IS DOING THIS".
+    //
+    // The rims are narrow (a tenth of the ring radius) because a wide band is a glow, and a glow at
+    // this distance just brightens the middle of the screen. A thin ring is legible as a shape even
+    // when the camera is close enough for the floor to fill the view.
+    //
+    // Phase is offset per ring so they never line up: three rings arriving together would pulse like
+    // a strobe instead of expanding like a ripple.
+    float ringGlow = 0.0;
+    for (int i = 0; i < 3; i++) {
+        float offset = float(i) * 0.3333;
+        float travel = fract(time * 0.30 + offset);     // 0 at the caster, 1 at the rim
+        float radius = RING_MAX_RADIUS * travel;
+        float d = distFromCaster - radius;
+        // Width grows slightly with travel: a ring keeps its apparent thickness as it expands, so it
+        // does not thin into a hairline by the time it reaches the edge of the effect.
+        float width = RING_MAX_RADIUS * (0.030 + 0.020 * travel);
+        float band = pow(clamp(1.0 - abs(d) / width, 0.0, 1.0), 2.0);
+        // Fade in over the first fifth (so rings do not pop into being at the caster's feet) and out
+        // over the rest, so the outermost rings dissolve instead of vanishing at a hard radius.
+        float life = smoothstep(0.0, 0.18, travel) * pow(1.0 - travel, 1.6);
+        ringGlow += band * life;
+    }
+    col += domainColorCore.rgb * ringGlow * 1.35;
+
     col += domainColorStar.rgb * star * domainColorStar.a;
+    // The spike is added separately and more strongly than the core: a glint is a highlight, and
+    // blending it at the star's own weight would make it a second smudge instead of a line.
+    col += domainColorStar.rgb * spike * 1.6;
 
     // The scene colour is NOT sampled. The composite is done by alpha blending against whatever the
     // level renderer left in the target, which avoids reading the framebuffer that is currently
     // being written -- a feedback loop whose result is undefined -- and with it any need to blit the
     // scene into a second target first. alpha 1 replaces the ground outright; the ramp keeps the
     // mask edge from aliasing into a hard circle.
-    float alpha = clamp(domainColorBase.a + star * 0.9, 0.0, 1.0) * mask;
+    float alpha = clamp(domainColorBase.a + star * 0.9 + spike * 0.7 + ringGlow * 0.8, 0.0, 1.0) * mask;
 
     fragColor = vec4(col * ColorModulator.rgb, alpha);
 }
