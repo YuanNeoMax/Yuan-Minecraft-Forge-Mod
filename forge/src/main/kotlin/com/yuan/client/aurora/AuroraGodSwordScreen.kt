@@ -694,6 +694,13 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                                         previewConfig(holder.snapshot().toConfig())
                                     },
                                     onPresetSave = { slot -> savePreset(slot, holder.snapshot()) },
+                                    onPresetCopy = { slot -> exportPreset(slot) },
+                                    onPresetPaste = { slot ->
+                                        if (importPreset(slot, holder)) {
+                                            markDirty()
+                                            previewConfig(holder.snapshot().toConfig())
+                                        }
+                                    },
                                     onOpenGroup = { opened ->
                                         if (openPanels.contains(opened.id)) {
                                             layout.raise("panel-${opened.id}")
@@ -785,6 +792,13 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                                             previewConfig(holder.snapshot().toConfig())
                                         },
                                         onPresetSave = { slot -> savePreset(slot, holder.snapshot()) },
+                                        onPresetCopy = { slot -> exportPreset(slot) },
+                                        onPresetPaste = { slot ->
+                                            if (importPreset(slot, holder)) {
+                                                markDirty()
+                                                previewConfig(holder.snapshot().toConfig())
+                                            }
+                                        },
                                         onChanged = {
                                             markDirty()
                                             previewConfig(holder.snapshot().toConfig())

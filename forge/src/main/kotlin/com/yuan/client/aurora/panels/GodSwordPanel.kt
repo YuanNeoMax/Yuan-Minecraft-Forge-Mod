@@ -52,7 +52,9 @@ internal fun GodSwordPanel(
     presetSlot: Int,
     onPresetSlot: (Int) -> Unit,
     onPresetLoad: (Int) -> Unit,
-    onPresetSave: (Int) -> Unit
+    onPresetSave: (Int) -> Unit,
+    onPresetCopy: (Int) -> Unit,
+    onPresetPaste: (Int) -> Unit
 ) {
     // Subscribe: every row below reads plain fields through the binding, and a value written
     // without a subscription changes the model and never repaints ("好像实际有效果，但是不显示").
@@ -79,7 +81,8 @@ internal fun GodSwordPanel(
                 // value to read, so both would fall through it as a no-op row.
                 when (row.id) {
                     "ballColor" -> BallColourRow(holder, onChanged)
-                    "preset" -> PresetRow(holder, presetSlot, onPresetSlot, onPresetLoad, onPresetSave)
+                    "preset" -> PresetRow(holder, presetSlot, onPresetSlot, onPresetLoad, onPresetSave,
+                        onPresetCopy, onPresetPaste)
                     else -> GodSwordRowLine(godRow, holder, onChanged)
                 }
             }

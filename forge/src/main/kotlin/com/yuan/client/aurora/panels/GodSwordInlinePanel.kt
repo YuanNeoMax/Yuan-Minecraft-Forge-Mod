@@ -75,6 +75,8 @@ internal fun GodSwordInlinePanel(
     onPresetSlot: (Int) -> Unit,
     onPresetLoad: (Int) -> Unit,
     onPresetSave: (Int) -> Unit,
+    onPresetCopy: (Int) -> Unit,
+    onPresetPaste: (Int) -> Unit,
     onOpenGroup: (GodSwordModules.Group) -> Unit,
     onChanged: () -> Unit,
     /**
@@ -136,7 +138,7 @@ internal fun GodSwordInlinePanel(
                     fromY = 6
                 ) {
                     SectionBlock(group, holder, query, presetSlot, onPresetSlot, onPresetLoad,
-                        onPresetSave, onOpenGroup, onChanged,
+                        onPresetSave, onPresetCopy, onPresetPaste, onOpenGroup, onChanged,
                         folded = group.id in foldedSections,
                         onToggleFold = { onToggleFold(group.id) })
                 }
@@ -161,6 +163,8 @@ private fun SectionBlock(
     onPresetSlot: (Int) -> Unit,
     onPresetLoad: (Int) -> Unit,
     onPresetSave: (Int) -> Unit,
+    onPresetCopy: (Int) -> Unit,
+    onPresetPaste: (Int) -> Unit,
     onOpenGroup: (GodSwordModules.Group) -> Unit,
     onChanged: () -> Unit,
     /** Whether this section is folded shut. See AuroraLayout.foldedSections. */
@@ -196,7 +200,8 @@ private fun SectionBlock(
             group.rows.forEach { godRow ->
                 when (godRow.row.id) {
                     "ballColor" -> BallColourRow(holder, onChanged)
-                    "preset" -> PresetRow(holder, presetSlot, onPresetSlot, onPresetLoad, onPresetSave)
+                    "preset" -> PresetRow(holder, presetSlot, onPresetSlot, onPresetLoad, onPresetSave,
+                onPresetCopy, onPresetPaste)
                     else -> GodSwordRowLine(godRow, holder, onChanged)
                 }
             }

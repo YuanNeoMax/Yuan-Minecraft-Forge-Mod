@@ -209,7 +209,9 @@ internal fun PresetRow(
     slot: Int,
     onSlot: (Int) -> Unit,
     onLoad: (Int) -> Unit,
-    onSave: (Int) -> Unit
+    onSave: (Int) -> Unit,
+    onCopy: (Int) -> Unit,
+    onPaste: (Int) -> Unit
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
         Text(
@@ -234,6 +236,19 @@ internal fun PresetRow(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AuroraButton("载入槽 ${slot + 1}", onClick = { onLoad(slot) })
             AuroraButton("保存到槽 ${slot + 1}", onClick = { onSave(slot) }, filled = true)
+        }
+        Spacer(Modifier.height(6.dp))
+        // SHARING, on its own row and stated as a clipboard rather than as "import/export".
+        //
+        // A preset lives in the sword's NBT, so it already travels with the item through a relog,
+        // a chest or a trade -- the only thing that did not travel was a preset going to a DIFFERENT
+        // sword. The clipboard is the one channel that crosses that boundary without inventing a
+        // second store on disk that would drift from the item.
+        //
+        // Named after what the player will actually do with it: copy the text, paste the text.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AuroraButton("复制槽 ${slot + 1}", onClick = { onCopy(slot) })
+            AuroraButton("从剪贴板粘贴", onClick = { onPaste(slot) })
         }
     }
 }

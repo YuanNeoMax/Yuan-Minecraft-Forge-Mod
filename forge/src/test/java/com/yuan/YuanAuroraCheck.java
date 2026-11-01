@@ -624,6 +624,30 @@ public final class YuanAuroraCheck {
                     : "the screen must supply the counts";
             // The count comes from the SAME comparison as the row dots, so rail and page can never
             // disagree about what has been changed.
+            // ---- a preset can cross to another sword ---------------------------------------
+            // A preset lives in the sword's NBT, so it already travels through a relog, a chest or
+            // a trade. The only boundary it did not cross was a DIFFERENT sword -- and the clipboard
+            // is the one channel that crosses it without inventing a second store on disk that would
+            // drift from the item.
+            String presetSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/AuroraComposeScreen.kt"));
+            assert presetSrc.contains("internal fun exportPreset(slot: Int)")
+                    : "a preset must be copyable out";
+            assert presetSrc.contains("setClipboard(stored.toString())")
+                    : "the copy must be the tag the game itself saves, in NBT text";
+            assert presetSrc.contains("internal fun importPreset(")
+                    : "a preset must be pasteable in";
+            // Vanilla's own parser, so a paste is whatever NBT prints.
+            assert presetSrc.contains("TagParser.parseTag(text)")
+                    : "the paste must be parsed by NBT's own syntax";
+            // PRESENCE, not "did read() throw": read() fills only present keys and leaves the rest
+            // at defaults, so ANY well-formed compound parses successfully and would then be written
+            // into the sword as an all-default preset.
+            assert presetSrc.contains("knownKeys.none { parsed.contains(it) }")
+                    : "a pasted tag must carry at least one declared key, or it is not a preset";
+            assert presetSrc.contains("holder.restore(")
+                    : "after pasting, the panel must redraw with the loaded values";
+
             assert screenSrc.contains("GodSwordBinding.modifiedCount(rowsFor(module, holder), holder)")
                     : "the rail count must use the same comparison as the dots";
 

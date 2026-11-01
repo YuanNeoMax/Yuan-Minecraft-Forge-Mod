@@ -516,6 +516,90 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
      * preset is a config-shaped tag, and the read already knows how to interpret it. Mirroring that
      * interpretation here would be a second reader of the same format.
      */
+    /**
+     * Copies one preset slot to the system clipboard as NBT text.
+     *
+     * <p>WHY THE CLIPBOARD AND NOT A FILE. A preset list lives inside the SWORD's own NBT -- that is
+     * what makes it travel with the item through a relog, a chest, or another player's hands. A file
+     * on disk would be a second store tied to one machine, and the two would drift. The clipboard
+     * needs no storage at all and is the one channel that already crosses worlds.
+     *
+     * <p>The text is the config-shaped tag the slot already holds, printed in NBT's own syntax, so
+     * what a player pastes is exactly what the game would have saved -- no second format, no
+     * version field to keep in step.
+     *
+     * @return true when something was copied.
+     */
+    internal fun exportPreset(slot: Int): Boolean {
+        if (swordStack.isEmpty) return false
+        val root = swordStack.getTagElement(com.yuan.item.YuanGodSwordConfig.TAG) ?: return false
+        val presets = root.getList(
+            com.yuan.item.YuanGodSwordConfig.PRESETS_KEY,
+            net.minecraft.nbt.Tag.TAG_COMPOUND.toInt()
+        )
+        if (slot < 0 || slot >= presets.size) return false
+        val stored = presets.getCompound(slot)
+        if (stored.isEmpty) return false
+        Minecraft.getInstance().keyboardHandler.setClipboard(stored.toString())
+        return true
+    }
+
+    /**
+     * Reads a preset from the clipboard into [slot] and loads it.
+     *
+     * <p>Accepts what [exportPreset] produced and anything else that is a config tag -- a preset
+     * pasted out of a forum post, or one edited by hand to try a value the player read about.
+     *
+     * @return true when the slot was written and the holder updated.
+     */
+    internal fun importPreset(slot: Int, holder: com.yuan.client.gui.V9Holder): Boolean {
+        if (swordStack.isEmpty) return false
+        val text = Minecraft.getInstance().keyboardHandler.getClipboard().trim()
+        if (text.isEmpty()) return false
+
+        val parsed: net.minecraft.nbt.CompoundTag = try {
+            // Vanilla's own NBT text syntax, so a paste is whatever NBT prints.
+            net.minecraft.nbt.TagParser.parseTag(text)
+        } catch (e: com.mojang.brigadier.exceptions.CommandSyntaxException) {
+            return false
+        }
+
+        // IS THIS A CONFIG AT ALL? `read` fills a field only when its key is present and leaves the
+        // rest at their defaults, so ANY well-formed tag parses "successfully" -- an arbitrary
+        // compound would load as an all-default preset and then be WRITTEN INTO the sword as though
+        // the player had chosen it. The test is therefore PRESENCE: a pasted tag has to carry at
+        // least one key the configuration actually declares.
+        val knownKeys = listOf(
+            "rewindEnabled", "rewindWindowSeconds", "rewindDeathEnabled",
+            "timestopEnabled", "slashEnabled", "domainEnabled"
+        )
+        if (knownKeys.none { parsed.contains(it) }) return false
+
+        val scratch = ItemStack(net.minecraft.world.item.Items.AIR)
+        scratch.getOrCreateTag().put(com.yuan.item.YuanGodSwordConfig.TAG, parsed)
+        val loaded = com.yuan.item.YuanGodSwordConfig()
+        loaded.read(scratch)
+
+        val root = swordStack.getOrCreateTagElement(com.yuan.item.YuanGodSwordConfig.TAG)
+        val presets = root.getList(
+            com.yuan.item.YuanGodSwordConfig.PRESETS_KEY,
+            net.minecraft.nbt.Tag.TAG_COMPOUND.toInt()
+        )
+        while (presets.size <= slot) {
+            presets.add(net.minecraft.nbt.CompoundTag())
+        }
+        presets.set(slot, parsed.copy())
+        root.put(com.yuan.item.YuanGodSwordConfig.PRESETS_KEY, presets)
+
+        holder.restore(com.yuan.client.gui.v9StateOf(loaded))
+        swordStack.getTagElement(com.yuan.item.YuanGodSwordConfig.TAG)?.let {
+            com.yuan.Yuan.CHANNEL.sendToServer(
+                com.yuan.network.YuanGodSwordConfigPacket(it.copy())
+            )
+        }
+        return true
+    }
+
     internal fun loadPreset(slot: Int, holder: com.yuan.client.gui.V9Holder): Boolean {
         if (swordStack.isEmpty) return false
         val root = swordStack.getTagElement(com.yuan.item.YuanGodSwordConfig.TAG) ?: return false
