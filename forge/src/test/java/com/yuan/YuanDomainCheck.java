@@ -367,6 +367,100 @@ public final class YuanDomainCheck {
                 "src/main/resources/assets/yuan/shaders/core/domain_starfield.vsh"))
                 : "the mesh-era vertex stage must be removed with its siblings";
 
+        // ---- THE APPEARANCE SETTINGS, END TO END ----------------------------------------------
+        //
+        // One setting reaches the screen through SIX layers: the config field, the NBT persistence,
+        // the packet, the client entry, the shader uniform, and the render push. Each of those is
+        // a separate file, and any one of them can be dropped by a later edit while everything
+        // still compiles -- a missing layer does not fail the build, it fails on the wire or on
+        // screen. So the whole chain is asserted here rather than remembered.
+        {
+            String config = Files.readString(Path.of(
+                    "src/main/java/com/yuan/item/YuanGodSwordConfig.java"));
+            String client2 = Files.readString(Path.of(
+                    "src/main/java/com/yuan/domain/YuanDomainClient.java"));
+            String request2 = Files.readString(Path.of(
+                    "src/main/java/com/yuan/domain/YuanDomainRequestPacket.java"));
+            String server2 = Files.readString(Path.of(
+                    "src/main/java/com/yuan/domain/YuanDomainServerState.java"));
+            String render2 = Files.readString(Path.of(
+                    "src/main/java/com/yuan/domain/render/YuanDomainRender.java"));
+            String shaders2 = Files.readString(Path.of(
+                    "src/main/java/com/yuan/domain/render/YuanDomainShaders.java"));
+            String fsh2 = Files.readString(Path.of(
+                    "src/main/resources/assets/yuan/shaders/core/domain_starfield_post.fsh"));
+            String json2 = Files.readString(Path.of(
+                    "src/main/resources/assets/yuan/shaders/core/domain_starfield_post.json"));
+
+            // 1. the config fields exist and are persisted. The persistence is reflective, so the
+            //    only thing that can go wrong is the field's TYPE: a float written by an int reader
+            //    would be silently dropped on reload.
+            assert config.contains("public float domainStarDensity")
+                    && config.contains("public float domainSpinScale")
+                    && config.contains("public boolean domainStarSpikes")
+                    : "the domain appearance fields must exist with the types the reflective "
+                    + "persistence handles";
+            // 2. and they are CLAMPED on read: the reflective read assigns by type and applies no
+            //    range, so a hand-edited preset could otherwise push any value into the shader.
+            assert config.contains("domainStarDensity = clamp(")
+                    && config.contains("domainSpinScale = clamp(")
+                    : "the appearance fields must be clamped on read";
+
+            // 3. the packet carries all three, and both codecs list them in the SAME order -- a
+            //    mismatch here is a valid build and a corrupt packet.
+            assert fsh2.contains("uniform float domainStarDensity")
+                    && fsh2.contains("uniform float domainSpinScale")
+                    && fsh2.contains("uniform float domainSpikesOn")
+                    : "the shader must declare the appearance uniforms";
+            assert json2.contains("domainStarDensity")
+                    && json2.contains("domainSpinScale")
+                    && json2.contains("domainSpikesOn")
+                    : "the json must declare them to the loader, or the lookup returns null and the "
+                    + "pass quietly skips";
+
+            // 4. every uniform resolved in Java AND required by readiness: a uniform that is
+            //    resolved but not required would draw a default instead of failing loudly.
+            assert shaders2.contains("getUniform(\"domainStarDensity\")")
+                    && shaders2.contains("getUniform(\"domainSpinScale\")")
+                    && shaders2.contains("getUniform(\"domainSpikesOn\")")
+                    : "the appearance uniforms must be resolved";
+            assert shaders2.contains("uStarDensity != null && uSpinScale != null && uSpikesOn != null")
+                    : "a missing appearance uniform must fail readiness, not draw a default";
+
+            // 5. the render pushes them from the CLIENT ENTRY, not from a local config: a client
+            //    can only read its own sword, so anything about another player's floor has to come
+            //    off the wire.
+            assert render2.contains("YuanDomainShaders.setAppearance(")
+                    && render2.contains("starDensity()")
+                    && render2.contains("spinScale()")
+                    && render2.contains("starSpikes()")
+                    : "the render must push the appearance read from the domain entry";
+            assert client2.contains("float starDensity")
+                    && client2.contains("float spinScale")
+                    && client2.contains("boolean starSpikes")
+                    : "the client entry must carry the appearance";
+
+            // 6. a REFRESH must exist and must not toggle. Without it, changing a slider while the
+            //    domain is open reached nobody -- the broadcast only fired on toggle.
+            assert request2.contains("message.refresh")
+                    : "the request must distinguish a refresh from a toggle";
+            assert request2.contains("if (!active) {")
+                    : "a refresh of a closed domain has nothing to publish and must return";
+            assert server2.contains("float starDensity, float spinScale, boolean starSpikes")
+                    : "the broadcast must carry the appearance";
+
+            // 7. and the change has to be published, DEBOUNCED -- preview runs per edit and a
+            //    slider fires per pixel.
+            String screen2 = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/AuroraComposeScreen.kt"));
+            assert screen2.contains("publishDomainAppearanceIfChanged")
+                    : "an appearance edit must be published, or other clients keep the old sky";
+            assert screen2.contains("DOMAIN_PUBLISH_INTERVAL_MS")
+                    : "publishing must be debounced, or one drag floods the wire";
+            assert screen2.contains("if (!changed) return")
+                    : "a drag that returns to where it started must publish nothing";
+        }
+
         System.out.println("YuanDomainCheck OK");
     }
 
