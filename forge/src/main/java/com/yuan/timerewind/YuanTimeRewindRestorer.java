@@ -342,11 +342,25 @@ public final class YuanTimeRewindRestorer {
         return dx * dx + dy * dy + dz * dz <= radiusSqr;
     }
 
+    /**
+     * The history at or before [targetTick], degrading to the whole history when that window is empty.
+     *
+     * <p>THE ORDER IS THE CONTRACT, and the old fallback broke it. Every reader here treats the list
+     * as OLDEST FIRST: `findPlayerSnapshot` keeps overwriting `latest` and so takes the LAST match,
+     * `applyEntities`' map overwrite takes the last snapshot per entity, and `findSafeTick` scans
+     * forward looking for the first safe tick. The fallback used to reverse its result, so in the one
+     * case it fired -- a retry whose target tick predates everything retained, or a rewind right
+     * after a server restart -- every reader silently took the OLDEST snapshot instead: player
+     * position, entity positions and world state each landed at a different, and wrong, moment, while
+     * the blocks were restored correctly. The rewind looked half-applied and nothing explained why.
+     *
+     * <p>So the fallback no longer reverses. `atOrBefore` already returns oldest first; the degrading
+     * path only widens the window, it does not reorder what it found.
+     */
     private static List<Object> historyAtOrBeforeFallback(YuanTimeRewindRecorder recorder, long targetTick) {
         List<Object> before = recorder.history().atOrBefore(targetTick);
         if (before.isEmpty() && recorder.history().earliestTick() != Long.MAX_VALUE) {
             before = recorder.history().atOrBefore(Long.MAX_VALUE);
-            Collections.reverse(before);
         }
         return before;
     }
@@ -1030,8 +1044,22 @@ public final class YuanTimeRewindRestorer {
                             lerpAngle(rotation[1], nextRotation[1], (float) t)};
                 }
             }
-            player.teleportTo(player.serverLevel(), pos.x, pos.y, pos.z,
-                    rotation[0], rotation[1]);
+            // TELEPORT INTO THE SNAPSHOT'S OWN DIMENSION, not the player's current one.
+            //
+            // A player can walk through a portal during playback -- the default camera mode does not
+            // freeze them -- and the restore used to apply the old dimension's coordinates to
+            // whatever level they were standing in by the time it finished. In the overworld that
+            // multiplied the nether's numbers by eight; the reverse dropped them into bedrock.
+            var targetLevel = player.server.getLevel(snapshot.dimension());
+            if (targetLevel == null) {
+                // The dimension no longer exists (a datapack removed). Restoring the position would
+                // be a guess, so only the rotation is applied -- the player keeps wherever they are.
+                player.setYRot(rotation[0]);
+                player.setXRot(rotation[1]);
+            } else {
+                player.teleportTo(targetLevel, pos.x, pos.y, pos.z,
+                        rotation[0], rotation[1]);
+            }
         }
     }
 }

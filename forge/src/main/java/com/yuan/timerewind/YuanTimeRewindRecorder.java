@@ -9,6 +9,8 @@ import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -37,7 +39,18 @@ public final class YuanTimeRewindRecorder {
                                 boolean thundering, int thunderTime, int clearWeatherTime,
                                 double borderX, double borderZ, double borderSize,
                                 CompoundTag scoreboard, CompoundTag raids) {}
-    public record PlayerSnapshot(long tick, UUID uuid, CompoundTag nbt) {}
+    /**
+     * A player's state at one tick, INCLUDING THE DIMENSION IT WAS TAKEN IN.
+     *
+     * <p>The dimension is not redundant with the NBT: `saveWithoutId` records a position, not the
+     * world the position belongs to, and the recorder that produced this snapshot is the only thing
+     * that knew which level the player was standing in. Without it, restoring a player whose
+     * playback crossed a portal teleported the OLD dimension's coordinates into the CURRENT one --
+     * the nether's numbers applied in the overworld are eight times their intended distance, and the
+     * reverse lands in the nether's bedrock layer. The block restore would be correct and the player
+     * would appear somewhere else entirely.
+     */
+    public record PlayerSnapshot(long tick, UUID uuid, ResourceKey<Level> dimension, CompoundTag nbt) {}
 
     private final ServerLevel level;
     private final long windowTicks;
@@ -116,7 +129,7 @@ public final class YuanTimeRewindRecorder {
         for (ServerPlayer p : level.players()) {
             CompoundTag tag = new CompoundTag();
             p.saveWithoutId(tag);
-            history.add(tick, new PlayerSnapshot(tick, p.getUUID(), tag));
+            history.add(tick, new PlayerSnapshot(tick, p.getUUID(), level.dimension(), tag));
         }
     }
 

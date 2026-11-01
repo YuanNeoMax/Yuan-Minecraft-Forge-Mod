@@ -133,6 +133,43 @@ public final class YuanTimeRewindCheck {
         assert rewindEvents.indexOf("YuanTimeRewindRestorer.restore")
                 < rewindEvents.indexOf("event.setCanceled(true)")
                 : "death must only be canceled after restore succeeds";
+        // ---- the history's ORDER is a contract --------------------------------------------
+        // Every reader treats the by-tick list as OLDEST FIRST: findPlayerSnapshot overwrites
+        // `latest` and so takes the LAST match, applyEntities' map overwrite takes the last snapshot
+        // per entity, findSafeTick scans forward. The fallback used to REVERSE its result, so in the
+        // one case it fired -- a retry whose target predates the retained window, or a rewind right
+        // after a restart -- every reader silently took the OLDEST snapshot instead: player position,
+        // entity positions and world state each landed at a different wrong moment while the blocks
+        // were restored correctly. The rewind looked half-applied, and nothing said why.
+        {
+            String restSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindRestorer.java"));
+            assert !restSrc.contains("historyAtOrBeforeFallback")
+                    || !restSrc.substring(restSrc.indexOf("private static List<Object> historyAtOrBeforeFallback"))
+                            .split("return before;")[0].contains("Collections.reverse(before)")
+                    : "the history fallback must not reorder: every reader depends on oldest-first";
+        }
+
+        // ---- a snapshot remember which world it came from ---------------------------------
+        // saveWithoutId records a POSITION, not the world it belongs to. Restoring a player who
+        // crossed a portal during playback applied the old dimension's coordinates to the current
+        // one: the nether's numbers in the overworld are eight times their distance, and the reverse
+        // lands in bedrock.
+        {
+            String recSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindRecorder.java"));
+            assert recSrc.contains("ResourceKey<Level> dimension")
+                    : "a player snapshot must carry its dimension";
+            assert recSrc.contains("level.dimension()")
+                    : "the dimension must come from the recorder that took the snapshot";
+            String restSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindRestorer.java"));
+            assert restSrc.contains("getLevel(snapshot.dimension())")
+                    : "the restore must teleport INTO the snapshot's dimension, not the current one";
+            assert restSrc.contains("targetLevel == null")
+                    : "a removed dimension must degrade to rotation only, not to a guessed position";
+        }
+
         assert rewindEvents.contains("shouldAttemptDeathRewind") : "death retry cap helper missing";
         assert rewindEvents.contains("shouldAttemptDeathRewind(retry")
                 : "death retry cap must be enforced";
@@ -268,7 +305,12 @@ public final class YuanTimeRewindCheck {
         assert rewindRestorer.contains("setPlaybackUntilMillis") : "restorer must start playback timing";
         assert rewindRestorer.contains("effectivePositionRewind") : "effective position rewind helper missing";
         assert rewindRestorer.contains("withEffectivePositionRewind") : "effective position rewind config copy missing";
-        assert rewindRestorer.contains("teleportTo(player.serverLevel()") : "restorer must use mapped ServerPlayer teleport";
+        // Still the MAPPED ServerPlayer teleport -- `teleportTo(ServerLevel, x, y, z, yRot, xRot)`
+        // rather than Entity.moveTo -- but the level is now the SNAPSHOT's dimension, not whatever
+        // the player happens to be standing in when the restore finishes. A player who crossed a
+        // portal during playback used to have the old dimension's coordinates applied to the new one.
+        assert rewindRestorer.contains("teleportTo(targetLevel, pos.x")
+                : "restorer must use mapped ServerPlayer teleport, into the snapshot's dimension";
         assert rewindRestorer.contains("applyProgressiveBatch") : "restorer progressive batch apply missing";
         assert rewindRestorer.contains("finishProgressive") : "restorer progressive finish missing";
         assert rewindRestorer.contains("collectRetreatTargets")
@@ -582,7 +624,8 @@ public final class YuanTimeRewindCheck {
             CompoundTag tag = safePlayerTag();
             tag.putFloat("Health", 1.0f);
             unsafeSnapshots.add(new YuanTimeRewindRecorder.PlayerSnapshot(
-                    40L + i * 10L, playerId, tag));
+                    40L + i * 10L, playerId,
+                    net.minecraft.world.level.Level.OVERWORLD, tag));
         }
         c.rewindDeathMaxRetries = 2;
         assert ((Long) findSafeTick.invoke(null, unsafeSnapshots, 100L, 0, null, c, null)).longValue() == 70L;
@@ -592,10 +635,12 @@ public final class YuanTimeRewindCheck {
         assert ((Long) findSafeTick.invoke(null, unsafeSnapshots, 100L, 0, null, c, null)).longValue() == 80L;
 
         List<YuanTimeRewindRecorder.PlayerSnapshot> minHeightSnapshots = new ArrayList<>();
-        minHeightSnapshots.add(new YuanTimeRewindRecorder.PlayerSnapshot(90L, playerId, safePlayerTag()));
+        minHeightSnapshots.add(new YuanTimeRewindRecorder.PlayerSnapshot(90L, playerId,
+                net.minecraft.world.level.Level.OVERWORLD, safePlayerTag()));
         CompoundTag belowNetherFloor = safePlayerTag();
         belowNetherFloor.put("Pos", posTag(0.0D, -1.0D, 0.0D));
-        minHeightSnapshots.add(new YuanTimeRewindRecorder.PlayerSnapshot(100L, playerId, belowNetherFloor));
+        minHeightSnapshots.add(new YuanTimeRewindRecorder.PlayerSnapshot(100L, playerId,
+                net.minecraft.world.level.Level.OVERWORLD, belowNetherFloor));
         c.rewindDeathMaxRetries = 0;
         assert ((Long) findSafeTick.invoke(null, minHeightSnapshots, 100L, 0, null, c, null)).longValue() == 90L;
 
