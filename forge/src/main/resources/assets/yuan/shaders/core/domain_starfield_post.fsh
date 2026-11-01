@@ -115,6 +115,37 @@ float nebula(vec2 p) {
  * <p>[arm] is the distance projected onto one axis, [along] the distance along the other; a tap is
  * only sharp when its arm is near zero AND it is close to the star, which is exactly the cross shape.
  */
+/**
+ * A stellar colour temperature, from a per-star seed.
+ *
+ * <p>EVERY STAR THE SAME WHITE IS THE ONE THING THAT MAKES A STAR FIELD LOOK PAINTED. Real skies
+ * are a spread: blue-white for the hot ones, white in the middle, yellow and orange for the cool
+ * ones -- and that spread is most of why the eye reads a field as depth rather than as a texture.
+ *
+ * <p>Four named stops rather than a continuous ramp. A continuous ramp between the same endpoints
+ * spends most of its range in the muddy middle where nothing looks like a real star; four stops
+ * with smooth easing keeps every star recognisably one of the four temperatures the eye expects.
+ *
+ * <p>The seed is [present] -- the same value that decides whether a cell holds a star at all --
+ * so a star keeps its colour as the field turns instead of shifting hue frame by frame.
+ */
+vec3 starTint(float seed) {
+    float t = fract(seed * 7.31);
+    if (t < 0.30) {
+        // Hot: blue-white.
+        return mix(vec3(0.72, 0.84, 1.00), vec3(0.88, 0.93, 1.00), t / 0.30);
+    } else if (t < 0.62) {
+        // Mid: white with a hint of blue.
+        return mix(vec3(0.88, 0.93, 1.00), vec3(1.00, 0.99, 0.96), (t - 0.30) / 0.32);
+    } else if (t < 0.88) {
+        // Cool: yellow-white.
+        return mix(vec3(1.00, 0.99, 0.96), vec3(1.00, 0.93, 0.76), (t - 0.62) / 0.26);
+    }
+    // The coolest few: orange, and the rarest -- which is why it gets the smallest band.
+    return mix(vec3(1.00, 0.93, 0.76), vec3(1.00, 0.78, 0.55), (t - 0.88) / 0.12);
+}
+
+/** The same function, for the diffracted spikes. */
 float starSpike(vec2 d, float reach) {
     float armX = abs(d.y);   // thin in y -> a horizontal arm
     float armY = abs(d.x);   // thin in x -> a vertical arm
@@ -193,6 +224,7 @@ void main() {
 
     float star = 0.0;
     float spike = 0.0;
+    vec3 starColour = vec3(1.0);
     if (present > 0.74) {          // ~26% of cells hold a star
         vec2 dv = local - o;
         float d = length(dv);
@@ -200,6 +232,7 @@ void main() {
         float phase = hash11(dot(cell, vec2(12.9898, 78.233)) + domainSeed);
         float tw = 0.65 + 0.35 * sin(time * TWINKLE_HZ * 6.2831 + phase * 6.2831);
         star = core * tw;
+        starColour = starTint(present);
 
         // SPIKES ONLY ON THE BRIGHT ONES. Every star getting a cross would make the floor busy and
         // flatten the difference between an ordinary star and a bright one -- the cross is what
@@ -264,10 +297,13 @@ void main() {
     }
     col += domainColorCore.rgb * ringGlow * 1.35;
 
-    col += domainColorStar.rgb * star * domainColorStar.a;
+    // tint'd by the star's own temperature, then multiplied by the palette's star colour so a
+    // custom accent still tints the whole field -- the temperature spread rides on top of the
+    // palette rather than replacing it.
+    col += domainColorStar.rgb * starColour * star * domainColorStar.a;
     // The spike is added separately and more strongly than the core: a glint is a highlight, and
     // blending it at the star's own weight would make it a second smudge instead of a line.
-    col += domainColorStar.rgb * spike * 1.6;
+    col += domainColorStar.rgb * starColour * spike * 1.6;
 
     // The scene colour is NOT sampled. The composite is done by alpha blending against whatever the
     // level renderer left in the target, which avoids reading the framebuffer that is currently
