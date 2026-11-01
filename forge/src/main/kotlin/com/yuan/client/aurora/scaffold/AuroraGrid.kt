@@ -179,6 +179,16 @@ internal fun AuroraRail(
     /** Toggles one entry's pin. Called by the star in the row. */
     onTogglePin: (String) -> Unit = {},
     /**
+     * How many settings in a given module differ from their defaults.
+     *
+     * <p>THE RAIL IS THE ONLY PLACE THAT CAN ANSWER "WHERE DID I CHANGE SOMETHING". A dot on the
+     * row inside a feature says which setting; nothing said which of the seven features had any
+     * setting at all, so a player returning after a break had to open all seven to find their own
+     * work. The count is shown only for modules that HAVE changes, so the rail stays quiet for a
+     * player who has not configured anything.
+     */
+    modifiedCount: (String) -> Int = { 0 },
+    /**
      * The keyboard focus model.
      *
      * <p>The rail draws a focus ring around the entry the keyboard is on, so a player who never
@@ -448,6 +458,10 @@ internal fun AuroraRail(
                     // entry is a second label that says less than the word next to it, and eight of them
                     // down a column is the busiest thing on screen. The icons stay for the content
                     // header, where the selected feature is stated once in a place that has room.
+                    // A COUNT BESIDE THE LABEL, and only when there is something to count. A
+                    // "0" on every row would be seven zeroes down a column -- noise that trains the
+                    // eye to ignore the position, which is exactly where the information appears.
+                    val changed = modifiedCount(entry.id)
                     Text(
                         entry.label,
                         fontSize = entryFont,
@@ -456,6 +470,23 @@ internal fun AuroraRail(
                         fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
                         maxLines = 1
                     )
+                    if (changed > 0) {
+                        Spacer(Modifier.width(5.dp))
+                        // The count sits BETWEEN the label and the flexible gap, so it hugs the
+                        // word it counts rather than floating at the row's right edge beside the
+                        // pin. A number at the far end would read as a property of the pin.
+                        //
+                        // Dimmer than the label and smaller: it is a secondary fact about the
+                        // entry, and a rail of equally-weighted numbers would compete with the
+                        // names that are the point.
+                        Text(
+                            changed.toString(),
+                            fontSize = TypeScale.hint,
+                            color = Star.textTertiary,
+                            fontFamily = auroraFont,
+                            maxLines = 1
+                        )
+                    }
                     Spacer(Modifier.weight(1f))
                     // THE PIN, and it REPLACES the grip rather than sitting beside it.
                     //

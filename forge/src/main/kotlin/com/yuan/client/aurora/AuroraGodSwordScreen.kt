@@ -542,6 +542,15 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                             // file's several methods owns the field, and getting it wrong compiles
                             // into an "cannot find symbol" against the outer class instead.
                             pinned = (layout.look.pinnedModules ?: emptySet()).toList(),
+                            // The counts come from the same comparison the row dots use, so the rail
+                            // and the page can never disagree about what has been changed.
+                            modifiedCount = { moduleId ->
+                                // Same source of rows the content area uses, so a gated row counts
+                                // exactly when it would have been drawn.
+                                val module = GodSwordModules.MODULES.firstOrNull { it.id == moduleId }
+                                if (module == null) 0
+                                else GodSwordBinding.modifiedCount(rowsFor(module, holder), holder)
+                            },
                             onTogglePin = { id ->
                                 // Toggle and persist. A pin is arrangement data, so it is saved with
                                 // the rest of the layout rather than living only for this session --

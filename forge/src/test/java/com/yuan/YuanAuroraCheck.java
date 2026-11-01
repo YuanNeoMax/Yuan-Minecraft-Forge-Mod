@@ -612,6 +612,21 @@ public final class YuanAuroraCheck {
             // Read at the LEAF that already re-reads the holder, beside the control it describes.
             assert panelSrc.contains("val modified = GodSwordBinding.isModified(godRow, holder)")
                     : "the mark must be read where the value is read";
+            // The RAIL answers "where did I change something": a dot inside a feature says WHICH
+            // setting, and nothing said which of the seven features had any setting at all.
+            assert grid.contains("modifiedCount: (String) -> Int")
+                    : "the rail must be able to show a per-module change count";
+            assert grid.contains("if (changed > 0)")
+                    : "a count of zero must not be drawn: seven zeroes train the eye to ignore the "
+                    + "position where the information appears";
+            assert screenSrc.contains("modifierCount = ")
+                    || screenSrc.contains("modifiedCount = { moduleId ->")
+                    : "the screen must supply the counts";
+            // The count comes from the SAME comparison as the row dots, so rail and page can never
+            // disagree about what has been changed.
+            assert screenSrc.contains("GodSwordBinding.modifiedCount(rowsFor(module, holder), holder)")
+                    : "the rail count must use the same comparison as the dots";
+
             assert panelSrc.contains("modified = modified")
                     : "every row must pass its own mark through";
 
