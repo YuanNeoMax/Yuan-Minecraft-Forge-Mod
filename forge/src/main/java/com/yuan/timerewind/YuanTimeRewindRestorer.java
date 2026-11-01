@@ -503,11 +503,49 @@ public final class YuanTimeRewindRestorer {
         return out;
     }
 
+    /**
+     * How many blocks one tick may write once playback has run out of time.
+     *
+     * <p>UNBOUNDED CATCH-UP IS A FRAME SPIKE, not a rescue. When the deadline passes, the code used
+     * to write EVERY remaining change in a single tick -- on a busy rewind that is thousands of
+     * setBlock calls, each with a neighbour update, in the same server tick that also has to send
+     * the resulting client packets. The symptom is a freeze at the exact moment the player is
+     * waiting for their world to come back, on a feature whose whole point is that the world comes
+     * back smoothly.
+     *
+     * <p>A stalled client or a lagging server is precisely when the deadline can expire with most of
+     * the work still pending, so this is the likely path, not a rare one. The catch-up now spends a
+     * bounded budget per tick and EXTENDS the deadline instead -- slower than promised, but never a
+     * stall, and the animation still finishes.
+     */
+    private static final int CATCHUP_BLOCKS_PER_TICK = 240;
+    /** How long one budgeted catch-up tick is allowed to claim before the deadline slides again. */
+    static final int CATCHUP_MS_PER_TICK = 50;
+
+    /**
+     * How many block changes are still waiting across every level of this playback.
+     *
+     * <p>Exists so a caller can tell "not finished" from "made no progress": a budgeted catch-up
+     * loop has to break on a batch that wrote nothing rather than spin, and the remaining count is
+     * the only honest measure of that. A boolean cannot express it -- false covers both "more to do"
+     * and "stuck".
+     */
+    static int pendingBlockCount(YuanTimeRewindEvents.PendingPlayback pending) {
+        int total = 0;
+        for (YuanTimeRewindEvents.LevelPending levelPending : pending.levels) {
+            total += levelPending.blocks.size() - levelPending.blockIndex;
+        }
+        return total;
+    }
+
     static boolean applyProgressiveBatch(YuanTimeRewindEvents.PendingPlayback pending, boolean allRemaining) {
         boolean allDone = true;
         for (YuanTimeRewindEvents.LevelPending levelPending : pending.levels) {
             int end = allRemaining
-                    ? levelPending.blocks.size()
+                    // Bounded even in catch-up. The budget is per LEVEL so a multi-dimension rewind
+                    // does not multiply the tick cost by the number of levels.
+                    ? Math.min(levelPending.blockIndex + CATCHUP_BLOCKS_PER_TICK,
+                            levelPending.blocks.size())
                     : Math.min(levelPending.blockIndex + levelPending.blocksPerTick,
                             levelPending.blocks.size());
             while (levelPending.blockIndex < end) {
@@ -521,7 +559,10 @@ public final class YuanTimeRewindRestorer {
             // the server keeps entities frozen during playback and snaps them exactly at finish.
             retreatTime(levelPending.level, pending.config, levelPending.targetDayTime);
         }
-        return allRemaining && allDone;
+        // "Finished" must mean the blocks ran out, not that catch-up was requested: the caller
+        // finalises the restore on true, and finalising on a budget-limited partial pass would
+        // snap entities and apply world state while blocks were still pending.
+        return allDone;
     }
 
     /** During playback, pull the world clock back toward the exact target dayTime. */

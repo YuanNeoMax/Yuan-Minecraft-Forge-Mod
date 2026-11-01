@@ -263,6 +263,38 @@ public final class YuanTimeRewindCheck {
                     : "the window must be movable for the in-place widen to work";
         }
 
+        // ---- catch-up is BUDGETED, so the two paths that mean "finish now" must loop ------
+        // The deadline used to be a switch that wrote EVERY remaining block in one tick. On a busy
+        // rewind that is thousands of setBlock calls with neighbour updates in the same tick that
+        // also has to send the client packets -- a freeze at the exact moment the player is waiting
+        // for their world back, on a feature whose whole point is that it returns smoothly. A
+        // stalled client is precisely when the deadline expires with work still pending.
+        {
+            String restSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindRestorer.java"));
+            assert restSrc.contains("CATCHUP_BLOCKS_PER_TICK")
+                    : "catch-up must spend a bounded budget per tick";
+            assert restSrc.contains("Math.min(levelPending.blockIndex + CATCHUP_BLOCKS_PER_TICK")
+                    : "the bounded budget must actually cap the catch-up write";
+            // "Finished" must mean the blocks ran out, NOT that catch-up was requested: the caller
+            // finalises on true, and finalising a partial pass would snap entities and apply world
+            // state while blocks were still pending.
+            assert restSrc.contains("return allDone;")
+                    : "the batch must report real completion, not the request to finish";
+            assert restSrc.contains("static int pendingBlockCount(")
+                    : "a caller must be able to tell \"not finished\" from \"stuck\"";
+
+            String evSrc2 = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindEvents.java"));
+            // BOTH "finish now" paths -- cancel and the exception recovery -- have to loop, or a
+            // single budgeted pass stops short and finishProgressive never runs.
+            assert evSrc2.split("pendingBlockCount(pending)", -1).length - 1 >= 2
+                    || evSrc2.contains("while (true) {\n                    int before = YuanTimeRewindRestorer.pendingBlockCount(pending);")
+                    : "both finish-now paths must loop until the blocks run out";
+            assert evSrc2.contains("CATCHUP_MS_PER_TICK")
+                    : "the deadline must slide rather than the catch-up stalling";
+        }
+
         assert rewindEvents.contains("shouldAttemptDeathRewind") : "death retry cap helper missing";
         assert rewindEvents.contains("shouldAttemptDeathRewind(retry")
                 : "death retry cap must be enforced";

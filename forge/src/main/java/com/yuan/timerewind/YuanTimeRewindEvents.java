@@ -188,7 +188,21 @@ public final class YuanTimeRewindEvents {
         boolean finished = false;
         if (pending != null) {
             try {
-                finished = YuanTimeRewindRestorer.applyProgressiveBatch(pending, true);
+                // LOOP TO COMPLETION, because one call is now BUDGETED. Catch-up writes at most
+                // CATCHUP_BLOCKS_PER_TICK blocks per level so a large rewind cannot stall a tick
+                // (see that constant) -- which means a single pass may well stop short of the end.
+                // A cancel is explicitly "skip the animation", so it takes the whole budget NOW,
+                // back to back, on this one tick: the player asked to get it over with, and the
+                // worst case is a few hundred writes beyond the normal per-tick amount.
+                //
+                // The guard is a safety net, not an expectation: a batch that makes no progress
+                // at all would otherwise spin forever.
+                while (true) {
+                    int before = YuanTimeRewindRestorer.pendingBlockCount(pending);
+                    finished = YuanTimeRewindRestorer.applyProgressiveBatch(pending, true);
+                    if (finished) break;
+                    if (YuanTimeRewindRestorer.pendingBlockCount(pending) == before) break;
+                }
             } catch (RuntimeException e) {
                 LOGGER.warn("[YuanTimeRewind] cancel failed to finish restore", e);
             }
@@ -344,6 +358,13 @@ Component.literal("\u00a7c[\u56de\u6eaf] \u81ea\u6551\u5931\u8d25\uff0c\u8bf7\u4
         PendingPlayback pending = pendingPlayback;
         if (pending == null) return;
         boolean allRemaining = System.currentTimeMillis() >= YuanTimeRewindServerState.getPlaybackUntilMillis();
+        if (allRemaining) {
+            // Push the deadline forward rather than trying to finish this instant. See
+            // CATCHUP_BLOCKS_PER_TICK: the catch-up is deliberately budgeted, so it needs more time
+            // than the original playback had.
+            YuanTimeRewindServerState.setPlaybackUntilMillis(
+                    System.currentTimeMillis() + YuanTimeRewindRestorer.CATCHUP_MS_PER_TICK);
+        }
         try {
             if (YuanTimeRewindRestorer.applyProgressiveBatch(pending, allRemaining)) {
                 YuanTimeRewindRestorer.finishProgressive(pending);
@@ -363,7 +384,15 @@ Component.literal("\u00a7c[\u56de\u6eaf] \u81ea\u6551\u5931\u8d25\uff0c\u8bf7\u4
             LOGGER.warn("[YuanTimeRewind] playback batch failed, attempting to finish", e);
             boolean recovered = false;
             try {
-                recovered = YuanTimeRewindRestorer.applyProgressiveBatch(pending, true);
+                // Same loop as a cancel, for the same reason: a single catch-up pass is BUDGETED
+                // (CATCHUP_BLOCKS_PER_TICK) so it may stop short, and this path only exists to get
+                // the world whole. The no-progress guard is the safety net.
+                while (true) {
+                    int before = YuanTimeRewindRestorer.pendingBlockCount(pending);
+                    recovered = YuanTimeRewindRestorer.applyProgressiveBatch(pending, true);
+                    if (recovered) break;
+                    if (YuanTimeRewindRestorer.pendingBlockCount(pending) == before) break;
+                }
                 if (recovered) {
                     YuanTimeRewindRestorer.finishProgressive(pending);
                 }
