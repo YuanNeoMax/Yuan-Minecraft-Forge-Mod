@@ -41,6 +41,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class YuanTimeRewindRestorer {
+    /**
+     * How many entity glide targets one dimension may carry.
+     *
+     * <p>Chosen against the wire, not against a frame budget: 512 entries is ~23 KB per dimension,
+     * which a SimpleChannel frame carries comfortably, while a thousand-entity farm would not. The
+     * cost of the cap is only that entities beyond it stop animating and land immediately.
+     */
+    private static final int MAX_RETREAT_TARGETS_PER_LEVEL = 512;
+
+    /**
+     * The longest a playback may hold the world frozen, in seconds.
+     *
+     * <p>A hard ceiling rather than a tighter clamp on the config: the config is per-sword and
+     * written by the player, while this is a property of what the SERVER can survive. Twenty
+     * seconds is already far longer than any readable rewind animation; past that the trigger is
+     * watching a stopped world and everyone else on it is simply waiting.
+     */
+    private static final float MAX_PLAYBACK_SECONDS = 20.0f;
     private static final Logger LOGGER = LoggerFactory.getLogger("YuanTimeRewind");
     private static final float SAFE_HEALTH = 10.0f;
     private static final int SAFE_FOOD_LEVEL = 6;
@@ -220,8 +238,15 @@ public final class YuanTimeRewindRestorer {
                 showRestoreStats(player, config);
                 YuanTimeRewindServerState.setActiveRetreatTargets(Map.of());
             }
-            YuanTimeRewindServerState.setPlaybackUntilMillis(
-                    System.currentTimeMillis() + (long) (config.rewindPlaybackSeconds * 1000.0F));
+            // SERVER-SIDE CEILING, independent of what the sword's config asks for. During
+                // progressive playback every entity and block tick in EVERY dimension is frozen, and
+                // only the trigger can cancel -- so a configurable one-hour playback is a
+                // "stop the server for an hour" switch that a single player holds. The config may
+                // ask for less; it cannot ask for more.
+                float playbackSeconds = Math.min(
+                        config.rewindPlaybackSeconds, MAX_PLAYBACK_SECONDS);
+                YuanTimeRewindServerState.setPlaybackUntilMillis(
+                        System.currentTimeMillis() + (long) (playbackSeconds * 1000.0F));
             started = true;
             return true;
         } finally {
@@ -451,6 +476,12 @@ public final class YuanTimeRewindRestorer {
         for (YuanTimeRewindEvents.LevelPending lp : pending.levels) {
             List<RetreatTarget> list = new ArrayList<>();
             for (YuanTimeRewindRecorder.EntitySnapshot es : lp.entityTargets.values()) {
+                // HARD CAP, and it is not an optimisation. Each target is ~46 bytes and this map is
+                // broadcast to the clients of every affected dimension; a mob farm with a few
+                // thousand entities would build a packet past the channel's frame limit and DISCONNECT
+                // the bystanders who received it. The retreat animation is a flourish -- an entity
+                // beyond the cap simply snaps to its restored position instead of gliding there.
+                if (list.size() >= MAX_RETREAT_TARGETS_PER_LEVEL) break;
                 list.add(new RetreatTarget(es.uuid(), es.x(), es.y(), es.z(), es.yRot(), es.xRot()));
             }
             out.put(lp.level.dimension(), list);

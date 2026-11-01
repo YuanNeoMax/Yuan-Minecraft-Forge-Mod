@@ -89,6 +89,47 @@ public final class YuanTimeRewindCheck {
                 : "recorder window must be resized when a larger configured window appears";
         assert !rewindEvents.contains("20L * 60L") : "recorder window must not be hardcoded to 60 seconds";
         assert rewindEvents.contains("cooldownReady(uuid") : "death cooldown must be per player UUID";
+        // COOLDOWNS ARE SPLIT BY SOURCE. One map meant a manual rewind's cooldown also blocked the
+        // death protection -- a player who rewound by hand and died seconds later lost their safety
+        // net, with nothing on screen explaining why. The two promises are independent.
+        assert rewindEvents.contains("CooldownKind.DEATH")
+                : "the death path must use its own cooldown source";
+        assert rewindEvents.contains("CooldownKind.MANUAL")
+                || Files.readString(Path.of(
+                        "src/main/java/com/yuan/timerewind/YuanTimeRewindRequestPacket.java"))
+                        .contains("CooldownKind.MANUAL")
+                : "the manual path must use its own cooldown source";
+        {
+            String stateSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindServerState.java"));
+            assert stateSrc.contains("COOLDOWN_MANUAL") && stateSrc.contains("COOLDOWN_DEATH")
+                    : "the two cooldown promises must not share a timer";
+            assert !stateSrc.contains("COOLDOWNS.get(")
+                    : "the single shared cooldown map must be gone";
+        }
+        // THE BROADCAST IS SCOPED, and capped. It used to go to every client on the server carrying
+        // every entity of every affected dimension; a dense world built a packet past the channel's
+        // frame limit and disconnected the bystanders who received it.
+        {
+            String restSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindRestorer.java"));
+            assert restSrc.contains("MAX_RETREAT_TARGETS_PER_LEVEL")
+                    : "the glide targets must have a hard cap or the packet can disconnect players";
+            assert rewindEvents.contains("sendRewindStart")
+                    : "the start packet must be sent through the dimension-scoped helper";
+            assert rewindEvents.contains("PacketDistributor.PLAYER.with(")
+                    : "the start packet must reach only the players who can see it";
+        }
+        // THE PLAYBACK CEILING. During progressive playback every tick in every dimension is frozen
+        // and only the trigger can cancel, so a configurable one-hour value is a server-wide stop
+        // switch that one player holds.
+        {
+            String restSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindRestorer.java"));
+            assert restSrc.contains("MAX_PLAYBACK_SECONDS")
+                    && restSrc.contains("Math.min(")
+                    : "the playback length must have a server-side ceiling";
+        }
         assert rewindEvents.indexOf("YuanTimeRewindRestorer.restore")
                 < rewindEvents.indexOf("event.setCanceled(true)")
                 : "death must only be canceled after restore succeeds";
@@ -206,7 +247,9 @@ public final class YuanTimeRewindCheck {
         assert rewindServerState.contains("getPlaybackUntilMillis") : "server playback deadline getter missing";
         assert rewindServerState.contains("isPlaybackActive") : "server playback active check missing";
         assert rewindServerState.contains("clearPlayback") : "server playback clear missing";
-        assert rewindServerState.contains("Map<UUID, Long> COOLDOWNS") : "cooldown state must be per player UUID";
+        assert rewindServerState.contains("Map<UUID, Long> COOLDOWN_MANUAL")
+                && rewindServerState.contains("Map<UUID, Long> COOLDOWN_DEATH")
+                : "cooldown state must be per player UUID, split by what armed it";
         assert rewindServerState.contains("Map<UUID, Integer> DEATH_RETRIES") : "death retry state must be per player UUID";
         assert rewindServerState.contains("setActiveRetreatTargets")
                 && rewindServerState.contains("getActiveRetreatTargets")
@@ -467,8 +510,8 @@ public final class YuanTimeRewindCheck {
         c.rewindPositionRewind = false;
 
         UUID stateUuid = UUID.randomUUID();
-        YuanTimeRewindServerState.startCooldown(stateUuid, 20);
-        assert !YuanTimeRewindServerState.cooldownReady(stateUuid, 20);
+        YuanTimeRewindServerState.startCooldown(stateUuid, 20, YuanTimeRewindServerState.CooldownKind.MANUAL);
+        assert !YuanTimeRewindServerState.cooldownReady(stateUuid, 20, YuanTimeRewindServerState.CooldownKind.MANUAL);
         assert YuanTimeRewindServerState.cooldownRemainingMillis(stateUuid) > 0L;
         assert YuanTimeRewindServerState.tryAcquire();
         assert !YuanTimeRewindServerState.tryAcquire();

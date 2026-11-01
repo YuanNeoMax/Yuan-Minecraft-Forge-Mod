@@ -13,7 +13,16 @@ import net.minecraft.world.phys.Vec3;
 
 public final class YuanTimeRewindServerState {
     private static final AtomicBoolean REWINDING = new AtomicBoolean(false);
-    private static final Map<UUID, Long> COOLDOWNS = new ConcurrentHashMap<>();
+    /**
+     * Cooldowns, SPLIT BY THE THING THAT ARMED THEM.
+     *
+     * <p>One map meant a manual rewind's 30-second cooldown also blocked the DEATH protection: a
+     * player who rewound by hand and then died within those seconds found their safety net gone,
+     * with nothing on screen explaining why. The two are different promises -- "you can rewind
+     * again" and "you cannot die" -- and sharing a timer between them let one cancel the other.
+     */
+    private static final Map<UUID, Long> COOLDOWN_MANUAL = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> COOLDOWN_DEATH = new ConcurrentHashMap<>();
     private static final Map<UUID, Integer> DEATH_RETRIES = new ConcurrentHashMap<>();
     private static volatile long playbackUntilMillis = 0L;
     private static volatile UUID activePlayerUuid;
@@ -116,21 +125,40 @@ public final class YuanTimeRewindServerState {
         playbackUntilMillis = 0L;
     }
 
-    public static boolean cooldownReady(UUID playerUuid, int ticks) {
+    /**
+     * True when the given cooldown source is spent.
+     *
+     * <p>[kind] names WHICH promise is being checked. A zero [ticks] means the feature is switched
+     * off for that source and is always ready -- and crucially it no longer bypasses the OTHER
+     * source's running timer, which the single-map version did.
+     */
+    public static boolean cooldownReady(UUID playerUuid, int ticks, CooldownKind kind) {
         if (playerUuid == null || ticks <= 0) return true;
-        Long until = COOLDOWNS.get(playerUuid);
+        Long until = mapFor(kind).get(playerUuid);
         return until == null || System.currentTimeMillis() >= until;
     }
 
-    public static void startCooldown(UUID playerUuid, int ticks) {
+    /** The two independent cooldown promises. */
+    public enum CooldownKind {
+        /** "You may rewind again": armed by a completed manual rewind. */
+        MANUAL,
+        /** "You cannot die": armed by a death that the protection already saved. */
+        DEATH
+    }
+
+    private static Map<UUID, Long> mapFor(CooldownKind kind) {
+        return kind == CooldownKind.DEATH ? COOLDOWN_DEATH : COOLDOWN_MANUAL;
+    }
+
+    public static void startCooldown(UUID playerUuid, int ticks, CooldownKind kind) {
         if (playerUuid == null) return;
-        COOLDOWNS.put(playerUuid,
+        mapFor(kind).put(playerUuid,
                 System.currentTimeMillis() + Math.max(0L, ticks * 50L));
     }
 
     public static long cooldownRemainingMillis(UUID playerUuid) {
         if (playerUuid == null) return 0L;
-        Long until = COOLDOWNS.get(playerUuid);
+        Long until = COOLDOWN_MANUAL.get(playerUuid);
         return until == null ? 0L : Math.max(0L, until - System.currentTimeMillis());
     }
 
@@ -151,7 +179,8 @@ public final class YuanTimeRewindServerState {
     }
 
     public static void resetAll() {
-        COOLDOWNS.clear();
+        COOLDOWN_MANUAL.clear();
+        COOLDOWN_DEATH.clear();
         DEATH_RETRIES.clear();
         playbackUntilMillis = 0L;
         endPlayback();

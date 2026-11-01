@@ -30,11 +30,13 @@ public class YuanTimeRewindRequestPacket {
             if (!config.rewindEnabled) return;
             if (!config.rewindTimestopStacking && com.yuan.timestop.YuanTimeStopServerState.isStopped()) return;
             if (!YuanTimeRewindServerState.cooldownReady(player.getUUID(),
-                    config.rewindCooldownTicks)) return;
+                    config.rewindCooldownTicks,
+                    YuanTimeRewindServerState.CooldownKind.MANUAL)) return;
             YuanGodSwordConfig restoreConfig = YuanTimeRewindRestorer.withEffectivePositionRewind(config, false);
             if (!YuanTimeRewindRestorer.restore(player.serverLevel(), restoreConfig, player, false, 0)) return;
             YuanTimeRewindServerState.startCooldown(
-                    player.getUUID(), restoreConfig.rewindCooldownTicks);
+                    player.getUUID(), restoreConfig.rewindCooldownTicks,
+                YuanTimeRewindServerState.CooldownKind.MANUAL);
             if (YuanTimeRewindEvents.shouldRestoreSword(restoreConfig, false)) {
                 if (restoreConfig.rewindPlaybackMode == 0) {
                     YuanTimeRewindEvents.setPendingSword(stack.copy());
@@ -42,7 +44,7 @@ public class YuanTimeRewindRequestPacket {
                     YuanTimeRewindEvents.ensureSwordHeld(player, stack);
                 }
             }
-            Yuan.CHANNEL.send(PacketDistributor.ALL.noArg(), new YuanTimeRewindStartPacket(
+            YuanTimeRewindEvents.sendRewindStart(new YuanTimeRewindStartPacket(
                     player.getId(),
                     restoreConfig.rewindCameraMode,
                     restoreConfig.rewindFreeCamRestorePosition,

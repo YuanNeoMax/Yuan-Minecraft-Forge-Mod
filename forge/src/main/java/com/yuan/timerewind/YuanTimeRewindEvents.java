@@ -292,6 +292,47 @@ Component.literal("\u00a7c[\u56de\u6eaf] \u81ea\u6551\u5931\u8d25\uff0c\u8bf7\u4
 }
     }
 
+    /**
+     * Sends the rewind Start packet to the players who can actually see it.
+     *
+     * <p>NOT to everyone. The packet carries the glide targets of every affected dimension, so
+     * broadcasting it to the whole server charged unrelated players for a packet they could not use
+     * -- and a dense world made that packet large enough to disconnect them. This sends it to the
+     * trigger's dimension plus the dimensions the restore touches, which is the set of players whose
+     * screen the effect appears on.
+     *
+     * <p>The trigger is included explicitly rather than relied on through their dimension: a player
+     * standing in a portal during the swap would otherwise miss their own playback start.
+     */
+    static void sendRewindStart(YuanTimeRewindStartPacket packet) {
+        var server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) return;
+        java.util.Set<java.util.UUID> sent = new java.util.HashSet<>();
+        for (Map.Entry<net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level>,
+                List<YuanTimeRewindRestorer.RetreatTarget>> e
+                : YuanTimeRewindServerState.getActiveRetreatTargets().entrySet()) {
+            var level = server.getLevel(e.getKey());
+            if (level == null) continue;
+            for (ServerPlayer p : level.players()) {
+                if (sent.add(p.getUUID())) {
+                    Yuan.CHANNEL.send(PacketDistributor.PLAYER.with(() -> p), packet);
+                }
+            }
+        }
+        // The trigger last: their own dimension may not appear in the target map at all (an instant
+        // restore publishes no targets), and they must still get the playback.
+        ServerPlayer trigger = server.getPlayerList().getPlayer(
+                YuanTimeRewindServerState.getActivePlayerUuid());
+        if (trigger != null && sent.add(trigger.getUUID())) {
+            Yuan.CHANNEL.send(PacketDistributor.PLAYER.with(() -> trigger), packet);
+        }
+        // Fallback: no targets and no resolvable trigger means the effect still has to appear
+        // somewhere, so keep the old behaviour rather than silently dropping the playback.
+        if (sent.isEmpty()) {
+            Yuan.CHANNEL.send(PacketDistributor.ALL.noArg(), packet);
+        }
+    }
+
     private static void processPendingPlayback() {
         PendingPlayback pending = pendingPlayback;
         if (pending == null) return;
@@ -347,7 +388,7 @@ Component.literal("\u00a7c[\u56de\u6eaf] \u81ea\u6551\u5931\u8d25\uff0c\u8bf7\u4
         if (!config.rewindTimestopStacking && YuanTimeStopServerState.isStopped()) return;
         UUID uuid = player.getUUID();
         int retry = YuanTimeRewindServerState.getDeathRetry(uuid);
-        if (YuanTimeRewindServerState.cooldownReady(uuid, config.rewindDeathCooldownTicks)) {
+        if (YuanTimeRewindServerState.cooldownReady(uuid, config.rewindDeathCooldownTicks, YuanTimeRewindServerState.CooldownKind.DEATH)) {
             YuanTimeRewindServerState.resetDeathRetry(uuid);
             retry = 0;
         } else if (retry == 0) {
@@ -364,7 +405,7 @@ Component.literal("\u00a7c[\u56de\u6eaf] \u81ea\u6551\u5931\u8d25\uff0c\u8bf7\u4
             return;
         }
         if (ok) {
-            Yuan.CHANNEL.send(PacketDistributor.ALL.noArg(), new YuanTimeRewindStartPacket(
+            YuanTimeRewindEvents.sendRewindStart(new YuanTimeRewindStartPacket(
                     player.getId(),
                     restoreConfig.rewindCameraMode,
                     restoreConfig.rewindFreeCamRestorePosition,
@@ -376,7 +417,7 @@ Component.literal("\u00a7c[\u56de\u6eaf] \u81ea\u6551\u5931\u8d25\uff0c\u8bf7\u4
                     YuanTimeRewindServerState.getActiveTargetPosition().y,
                     YuanTimeRewindServerState.getActiveTargetPosition().z,
                     YuanTimeRewindServerState.getActiveRetreatTargets()));
-            YuanTimeRewindServerState.startCooldown(uuid, restoreConfig.rewindDeathCooldownTicks);
+            YuanTimeRewindServerState.startCooldown(uuid, restoreConfig.rewindDeathCooldownTicks, YuanTimeRewindServerState.CooldownKind.DEATH);
             event.setCanceled(true);
             if (restoreConfig.rewindPlaybackMode == 0) {
                 setPendingSword(stack.copy());
