@@ -399,21 +399,21 @@ public final class YuanAuroraCheck {
                     : "the hits must be keyed on the query, not recomputed every frame";
 
             // ---- Tier C: one row back to its default ------------------------------------------
-            String bindSrc = Files.readString(Path.of(
+            String bindSrcMark = Files.readString(Path.of(
                     "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordBinding.kt"));
             // The default comes from `V9State`'s own field initialisers, so there is exactly one
             // place a default is declared. A second table would drift the first time either moved.
-            assert bindSrc.contains("V9Holder(com.yuan.client.gui.V9State())")
+            assert bindSrcMark.contains("V9Holder(com.yuan.client.gui.V9State())")
                     : "the defaults must come from V9State's initialisers, not a parallel table";
             // Shared, and read-only: writing here would make each reset restore the previous reset.
-            assert bindSrc.contains("private val defaultsHolder: V9Holder by lazy")
+            assert bindSrcMark.contains("private val defaultsHolder: V9Holder by lazy")
                     : "the defaults holder must be built once and shared";
             // The scale is NOT applied: readFloat and writeFloat both speak the stored unit, so
             // applying the display factor on one side is the bug the row's `scale` field prevents.
-            assert bindSrc.contains("writeFloat(id, target, readFloat(id, defaults))")
+            assert bindSrcMark.contains("writeFloat(id, target, readFloat(id, defaults))")
                     : "a copied value must not be scaled; both accessors speak the stored unit";
             // Rows with no single default must say so rather than appear to work.
-            assert bindSrc.contains("else -> false")
+            assert bindSrcMark.contains("else -> false")
                     : "a row with no meaningful default must report that it cannot reset";
             String rowSrc = Files.readString(Path.of(
                     "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordPanel.kt"));
@@ -596,6 +596,25 @@ public final class YuanAuroraCheck {
             // source it was easy to lose track of the row under the button.
             assert grid.contains("val isSource = dragFrom == index")
                     : "a drag must mark the row being carried, not only its destination";
+            // ---- a row says whether it was changed -----------------------------------------
+            String markSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordBinding.kt"));
+            String panelSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordPanel.kt"));
+            assert markSrc.contains("internal fun isModified(")
+                    : "the binding must be able to compare a row against its default";
+            // Same dispatch as the reset, so the mark can never disagree with the button beside
+            // it: a row that shows unmodified is exactly one reset would leave alone.
+            assert markSrc.contains("TYPE_SWITCH -> readBool(id, current) != readBool(id, defaults)")
+                    : "the mark must compare through the same reader the reset writes through";
+            assert markSrc.contains("TYPE_SLIDER -> readFloat(id, current) != readFloat(id, defaults)")
+                    : "sliders must compare in the stored unit, like the reset does";
+            // Read at the LEAF that already re-reads the holder, beside the control it describes.
+            assert panelSrc.contains("val modified = GodSwordBinding.isModified(godRow, holder)")
+                    : "the mark must be read where the value is read";
+            assert panelSrc.contains("modified = modified")
+                    : "every row must pass its own mark through";
+
             assert grid.contains("alpha = 0.55f")
                     : "the carried row must visually lift off the list";
 

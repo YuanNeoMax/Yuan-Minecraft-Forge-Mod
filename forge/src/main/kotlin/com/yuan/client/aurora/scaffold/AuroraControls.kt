@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,25 +31,25 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.yuan.client.aurora.anim.Motion
 import com.yuan.client.aurora.AuroraLook
 import com.yuan.client.aurora.LocalAuroraLayout
+import com.yuan.client.aurora.anim.Motion
 import com.yuan.client.aurora.icons.AuroraIcon
 import com.yuan.client.aurora.icons.IconSize
 import com.yuan.client.aurora.theme.Star
@@ -87,6 +88,16 @@ internal val CONTROL_WIDTH: Dp = 156.dp
 internal fun AuroraRow(
     label: String,
     hint: String = "",
+    /**
+     * Whether this row differs from its default, marked with a dot beside the label.
+     *
+     * <p>A FEATURE'S PAGE IS ITS PLAYER'S OWN SUMMARY. Twenty-seven settings presented as
+     * twenty-seven identical rows cannot be audited: after a session of tuning, nobody remembers
+     * which three they touched, and "restore defaults" then means losing settings they never set.
+     * The mark is small and quiet on purpose -- it says "you changed this", and a page full of dots
+     * says "you built this", neither of which belongs in the foreground.
+     */
+    modified: Boolean = false,
     control: @Composable () -> Unit
 ) {
     // The row's pitch comes from the arrangement layer, so the numbers its menu exposes have something
@@ -103,12 +114,30 @@ internal fun AuroraRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(
-                label,
-                fontSize = TypeScale.row,
-                color = Star.textPrimary,
-                fontFamily = auroraFont
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    label,
+                    fontSize = TypeScale.row,
+                    color = Star.textPrimary,
+                    fontFamily = auroraFont
+                )
+                if (modified) {
+                    Spacer(Modifier.width(5.dp))
+                    // A dot rather than a word or an icon: the row already carries a label and
+                    // usually a hint, and a third piece of text would compete with both. Its
+                    // absence is the common case, so it is what the eye reads past first.
+                    Box(
+                        Modifier
+                            .size(4.dp)
+                            // NEUTRAL, not the accent. The accent means "this control is on"
+                            // and is admitted in exactly two places -- a toggle's track and
+                            // a slider's fill. A third use would make a coloured pixel stop
+                            // meaning that. This dot says "changed", which is state, not
+                            // activation, so it takes a quiet grey.
+                            .background(Star.textTertiary, CircleShape)
+                    )
+                }
+            }
             if (hint.isNotEmpty()) {
                 Text(
                     hint,

@@ -113,6 +113,10 @@ internal fun GodSwordRowLine(
     @Suppress("UNUSED_EXPRESSION")
     com.yuan.client.aurora.LocalLayoutRevision.current
     val row = godRow.row
+    // Read at this leaf, beside the control that paints the value: a mark computed higher up
+    // would only refresh when something ELSE recomposed, so a row could show "unmodified" while
+    // the toggle right beside it had visibly moved.
+    val modified = GodSwordBinding.isModified(godRow, holder)
 
     // RIGHT-CLICK THE ROW TO PUT IT BACK TO ITS DEFAULT.
     //
@@ -138,7 +142,7 @@ internal fun GodSwordRowLine(
         }
     ) {
     when (row.type) {
-        GodSwordRows.TYPE_SWITCH -> AuroraRow(row.name, row.desc) {
+        GodSwordRows.TYPE_SWITCH -> AuroraRow(row.name, row.desc, modified = modified) {
             AuroraToggle(
                 checked = GodSwordBinding.readBool(row.id, holder),
                 onCheckedChange = {
@@ -148,7 +152,7 @@ internal fun GodSwordRowLine(
             )
         }
 
-        GodSwordRows.TYPE_SEGMENT -> AuroraRow(row.name, row.desc) {
+        GodSwordRows.TYPE_SEGMENT -> AuroraRow(row.name, row.desc, modified = modified) {
             val labels = GodSwordBinding.labelsOf(row.id)
             // A selector rather than a segmented control: at this density a row of options spends the
             // whole control column on every candidate, and the answer is one word. The list opens over
@@ -184,7 +188,7 @@ internal fun GodSwordRowLine(
             } else {
                 GodSwordBinding.formatOf(row.id)
             }
-            AuroraRow(row.name, row.desc) {
+            AuroraRow(row.name, row.desc, modified = modified) {
                 AuroraSlider(
                     value = display,
                     range = range,
@@ -202,7 +206,7 @@ internal fun GodSwordRowLine(
             val field = godRow.colourField
             val channel = godRow.channel
             if (field != null && channel != null) {
-                AuroraRow(row.name, "") {
+                AuroraRow(row.name, "", modified = modified) {
                     AuroraSlider(
                         value = GodSwordBinding.readChannel(field, channel, holder),
                         // A channel is a byte: its bounds are fixed at 0..255 rather than derived

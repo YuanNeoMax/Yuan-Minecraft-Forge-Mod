@@ -372,6 +372,49 @@ internal object GodSwordBinding {
      *
      * @return true when a value was actually written.
      */
+    /**
+     * Whether [godRow]'s value differs from its default.
+     *
+     * <p>THE QUESTION A PLAYER ACTUALLY ASKS. A feature with twenty-seven settings is impossible to
+     * audit from a list of identical rows: after a session of tuning, nobody remembers which three
+     * they changed, and "back to defaults" means restoring settings they may never have touched.
+     * Marking the changed ones turns the page into a summary of that player's own configuration.
+     *
+     * <p>Reads the SAME field the reset writes, through the same dispatch, so the mark can never
+     * disagree with the button beside it -- a row that shows as unmodified is exactly a row that
+     * reset would leave alone.
+     *
+     * <p>Swatch and preset rows answer false deliberately: a swatch may have no meaningful default
+     * and a preset row edits a whole slot, so neither has a single comparable value. The row
+     * painter shows no mark for them rather than a mark that means nothing.
+     */
+    internal fun isModified(godRow: GodRow, current: V9Holder, defaults: V9Holder = defaultsHolder): Boolean {
+        val id = godRow.row.id
+        return when (godRow.row.type) {
+            TYPE_SWITCH -> readBool(id, current) != readBool(id, defaults)
+            TYPE_SEGMENT -> readIndex(id, current) != readIndex(id, defaults)
+            // Compared in the STORED unit, like resetRow: the display factor belongs to the slider,
+            // and applying it on one side only would misreport every row that has one.
+            TYPE_SLIDER -> readFloat(id, current) != readFloat(id, defaults)
+            GodSwordRows.TYPE_CHANNEL -> {
+                val field = godRow.colourField
+                val channel = godRow.channel
+                if (field == null || channel == null) false
+                else readChannel(field, channel, current) != readChannel(field, channel, defaults)
+            }
+            else -> false
+        }
+    }
+
+    /**
+     * How many of a module's rows differ from their defaults.
+     *
+     * <p>The rail shows this per feature so a player can see at a glance which of the seven they
+     * have actually configured, without opening each one.
+     */
+    internal fun modifiedCount(rows: List<GodRow>, current: V9Holder, defaults: V9Holder = defaultsHolder): Int =
+        rows.count { isModified(it, current, defaults) }
+
     internal fun resetRow(godRow: GodRow, target: V9Holder, defaults: V9Holder): Boolean {
         val id = godRow.row.id
         return when (godRow.row.type) {
