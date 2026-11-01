@@ -694,6 +694,26 @@ public final class YuanAuroraCheck {
             assert screenSrc.contains("searchHits.getOrNull(focus.index)")
                     : "Enter must open the focused search hit";
 
+            // ---- the motion level must be OBSERVABLE, not merely mutable ---------------
+            // `dur()` is read inside composition and the animation specs it produces are
+            // remembered by targetValue, so a plain field changed nothing for a spec that was
+            // already built: moving the motion level while the window was open left every running
+            // animation on its old duration until something else happened to recompose it.
+            String motionSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/anim/Motion.kt"));
+            assert motionSrc.contains("mutableStateOf(")
+                    : "the motion level must be backed by Compose state, or a change does not reach "
+                    + "specs that are already built";
+            assert motionSrc.contains("get() = levelState.value")
+                    : "reads must go through the state, not a plain field";
+            // And the per-frame assignment from the render loop must NOT be "optimised" into a
+            // cached plain field -- that cache is the bug.
+            assert motionSrc.contains("equality policy is")
+                    : "the no-op-on-equal behaviour must be recorded, or a reader will cache it and "
+                    + "reintroduce the bug";
+            assert !motionSrc.contains("@Volatile\n    var level")
+                    : "removing the volatile field is part of making it observable";
+
             assert screenSrc.contains("val appearNow = windowAppear.value")
                     : "the window ramp must be read where the conditional layer can see it";
             assert screenSrc.contains("val fading = appearNow < 0.999f")

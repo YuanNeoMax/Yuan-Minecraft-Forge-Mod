@@ -46,8 +46,24 @@ internal object Motion {
      * package. The value is read when an animation starts, and the window is rebuilt on the open
      * that changes it, so a stale read cannot outlive the frame it was set on.
      */
-    @Volatile
-    var level: AuroraLayout.MotionLevel = AuroraLayout.MotionLevel.FULL
+    // A COMPOSE STATE AS WELL AS A PLAIN VALUE.
+    //
+    // `dur()` is read inside composition, and the animation specs it produces are remembered by
+    // targetValue. A plain field therefore changed NOTHING for specs that were already built:
+    // moving the motion level while the window was open left every running animation on its old
+    // duration until something else happened to recompose it. The state below is what makes the
+    // read observable, so changing the level re-derives the specs that depend on it.
+    private val levelState = androidx.compose.runtime.mutableStateOf(AuroraLayout.MotionLevel.FULL)
+    
+    var level: AuroraLayout.MotionLevel
+        get() = levelState.value
+        set(value) {
+            // Assigning an equal value is a no-op for a MutableState (its equality policy is
+            // structural), so the per-frame assignment from the render loop only recomposes when
+            // the level actually changed. Do NOT cache this in a plain field to avoid "per-frame"
+            // writes: that cache is exactly the bug this setter exists to fix.
+            levelState.value = value
+        }
 
     /** True when any motion at all is allowed. */
     val animated: Boolean get() = level != AuroraLayout.MotionLevel.OFF
