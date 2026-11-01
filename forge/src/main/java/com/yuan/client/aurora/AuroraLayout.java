@@ -503,6 +503,36 @@ public final class AuroraLayout {
     }
 
     /**
+     * Named accent presets.
+     *
+     * <p>Presets exist so the choice is ONE click rather than a colour picker: an RGB picker needs
+     * three sliders and a preview inside a panel that is already dense, and the tints derived from
+     * the accent (dim, wash) would then have to be re-derived by hand at every drag. Each preset is
+     * a single well-chosen hue whose derived shades are computed once, on selection.
+     */
+    public enum AccentPreset {
+        /** The shipped blue: the reference look. */
+        STARLIGHT("星蓝", 0xFF4A90E2),
+        /** Warm, for a player who reads red as "active". */
+        EMBER("炽橙", 0xFFE2703A),
+        /** Green, the colour most interfaces use for "on". */
+        JADE("翡翠", 0xFF3DBF7C),
+        /** Violet, the most distinct from the other three at a glance. */
+        NEBULA("星云紫", 0xFF8B6FE8),
+        /** A near-white: reads as monochrome, for players who want the chrome to disappear. */
+        PALE("冷白", 0xFFC8CCD4);
+
+        public final String label;
+        /** Packed RGB, opaque. */
+        public final int color;
+
+        AccentPreset(String label, int color) {
+            this.label = label;
+            this.color = color;
+        }
+    }
+
+    /**
      * Which material the window's surfaces are made of.
      *
      * <p>TWO MATERIALS, NOT TWO STRENGTHS. {@link GlassLevel} says HOW MUCH of the world shows
@@ -607,6 +637,21 @@ public final class AuroraLayout {
      * live, and the rail would rearrange itself the first time one was edited without the other.
      */
     public java.util.Set<String> pinnedModules = new java.util.LinkedHashSet<>();
+
+    /**
+     * The accent colour, packed. Zero means "use the shipped one".
+     *
+     * <p>THE ONE COLOUR A PLAYER MAY REPLACE. The rest of the palette is a tuned ladder -- greys
+     * whose contrast ratios are documented in Starlight's header -- and swapping one rung without
+     * the others breaks the ladder. The accent is identity rather than structure: it appears on a
+     * toggle's track, a slider's fill and a keyboard focus ring, and those three are exactly the
+     * places a player wants their own colour.
+     *
+     * <p>Zero as "unset" rather than a default constant, so a layout file written before this field
+     * existed keeps the shipped accent instead of being pinned to whatever the default was on the
+     * day it was created.
+     */
+    public int accentColor = 0;
 
     /**
      * Where each floating panel sits on screen, in ROOT-space pixels.

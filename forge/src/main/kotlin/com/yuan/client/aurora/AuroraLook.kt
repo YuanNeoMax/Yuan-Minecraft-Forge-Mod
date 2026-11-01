@@ -137,6 +137,16 @@ internal class AuroraLook(private val layout: AuroraLayout) {
     val toggleWidth: Dp @Composable get() = look().toggleWidth.dp
     val toggleHeight: Dp @Composable get() = look().toggleHeight.dp
     val accent: Color @Composable get() = Color(look().accent)
+
+    /**
+     * The stored accent preset colour, packed. Zero means "the shipped one".
+     *
+     * <p>Read through here rather than off `Look` directly, because every other value in the palette
+     * has an accessor and this one is the exception only in WHERE it ends up: a preset writes it
+     * into [Star] rather than into a composable parameter. The accessor still exists so the palette
+     * has one shape, and so the guard that checks every field is reachable keeps working.
+     */
+    val accentColor: Int @Composable get() = look().accentColor
     val trackColor: Color @Composable get() = Color(look().trackColor)
     val accentDim: Color @Composable get() = Color(look().accentDim)
 }

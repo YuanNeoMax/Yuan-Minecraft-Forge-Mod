@@ -1561,10 +1561,30 @@ public final class YuanAuroraCheck {
         java.util.List<String> unread = new java.util.ArrayList<>();
         java.util.List<String> uneditable = new java.util.ArrayList<>();
         String consumers = lookSrc + shell + grid + controls;
+        // THE ONE DOCUMENTED EXCEPTION, and it needs a reason rather than a special case.
+        //
+        // Every other Look field is a number the arrangement menu edits with a slider. `accentColor`
+        // is a PRESET: choosing it is a click on a colour swatch, which lives in the settings panel
+        // beside the glass and motion rows -- the places a player looks for "how the window behaves"
+        // rather than "how the window is arranged". The guard's job is to catch a field nobody can
+        // reach; this field is reachable, by a different control in a different surface, so the guard
+        // names it explicitly instead of growing a hole.
+        java.util.Set<String> editedOutsideTheMenu = java.util.Set.of("accentColor");
+        String settingsSrc = Files.readString(Path.of(
+                "src/main/kotlin/com/yuan/client/aurora/panels/AuroraSettingsPanel.kt"));
+
         for (String f : lookFields) {
             if (!lookSrc.contains("val " + f + ":")) noAccessor.add(f);
             if (!consumers.contains("look." + f) && !lookSrc.contains("look()." + f)) unread.add(f);
-            if (!arrange.contains("layout.look." + f)) uneditable.add(f);
+            if (editedOutsideTheMenu.contains(f)) {
+                // Reached from the settings panel instead -- and proving it here is what keeps the
+                // exception honest: if that row were deleted, this would fail.
+                if (!settingsSrc.contains("look." + f) && !settingsSrc.contains("look()." + f)) {
+                    uneditable.add(f);
+                }
+            } else if (!arrange.contains("layout.look." + f)) {
+                uneditable.add(f);
+            }
         }
         assert lookFields.size() >= 30
                 : "the arrangement layer must expose the window's numbers; found " + lookFields.size();

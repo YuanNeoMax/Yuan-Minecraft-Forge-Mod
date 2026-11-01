@@ -587,11 +587,27 @@ public final class YuanTimeRewindRestorer {
         }
     }
 
+    /**
+     * Restores one recorded block, then tells its neighbours.
+     *
+     * <p>FLAG 2 IS CORRECT FOR THE WRITE, and the neighbours must still be told. Flag 2 means
+     * "send this to clients, do not cascade" -- and not cascading is what keeps a full-dimension
+     * rewind from re-triggering every neighbour of every restored block, since they are all being
+     * restored too. But it leaves the rest of the world not knowing: in a radius-limited or
+     * filtered rewind only a subset of positions is touched, so a restored support block never
+     * tells the sand above it to fall, a door half never tells the other half, and a rail never
+     * reconnects. The rewind would be locally correct and globally broken.
+     *
+     * <p>So after the write, the restored position flags its own neighbours for a shape update.
+     */
     private static void applyBlockChange(ServerLevel level, YuanGodSwordConfig config,
                                          YuanTimeRewindRecorder.BlockChange bc) {
         try {
             restoredBlockCount++;
             level.setBlock(bc.pos(), bc.oldState(), 2);
+            // See the method note: flag 2 deliberately does not cascade, so the neighbours have to
+            // be told explicitly or a partial rewind leaves the world inconsistent around it.
+            level.blockUpdated(bc.pos(), level.getBlockState(bc.pos()).getBlock());
             if (config.rewindBlockEntities && bc.oldBlockEntity() != null) {
                 BlockEntity be = level.getBlockEntity(bc.pos());
                 if (be != null) {

@@ -69,11 +69,62 @@ internal object Star {
      * <p>Referenced from exactly those two controls. Any other use is a regression -- see this file's
      * header for why limiting it is what lets a blue pixel mean something.
      */
-    val accent = Color(0xFF4A90E2)
+    /**
+     * The accent, and the two shades derived from it.
+     *
+     * <p>MUTABLE, because the palette is a setting now. Every other value in this object is a
+     * constant: the greys are a tuned ladder and changing one without the others breaks the
+     * contrast the file's header documents. The accent is the opposite case -- its whole job is
+     * identity, and the derived shades are simple arithmetic on it -- so it is the one colour a
+     * preset may swap.
+     *
+     * <p>Plain fields rather than Compose state, for the same reason the arrangement layer is: they
+     * are written once when a preset is chosen, and the window already re-reads them because the
+     * layout revision bumps. Making them observable here would mean every control reading the
+     * palette subscribes individually, for a value that changes a few times a session.
+     *
+     * <p>Derived rather than stored: a preset that set the three shades independently could
+     * produce a tint that does not match its accent, and the tint exists precisely to be the
+     * accent at low alpha.
+     */
+    var accent: Color = Color(0xFF4A90E2)
+        private set
     /** A dimmer accent, for a hover on an accent-filled control. */
-    val accentDim = Color(0xFF3E7BC4)
+    var accentDim: Color = Color(0xFF3E7BC4)
+        private set
     /** A faint accent wash, for a selected plate that must not compete with a filled control. */
-    val accentTint = Color(0x264A90E2)
+    var accentTint: Color = Color(0x264A90E2)
+        private set
+
+    /** The shipped accent, so a preset can name "the default" rather than duplicating its hex. */
+    val defaultAccent: Color = Color(0xFF4A90E2)
+
+    /**
+     * Installs a new accent, deriving its dim and tint shades.
+     *
+     * <p>The derivation is fixed here rather than in each preset: dim is the accent at 78 percent
+     * brightness (the ratio the shipped pair already implies) and tint is the accent at 15 percent
+     * alpha. A preset that dropped to the keyboard-shortcut grey would otherwise also need a
+     * matching tint by hand, and the two would drift the first time one was edited.
+     */
+    fun setAccent(colour: Color) {
+        accent = colour
+        accentDim = Color(
+            red = colour.red * 0.78f,
+            green = colour.green * 0.78f,
+            blue = colour.blue * 0.78f,
+            alpha = 1.0f
+        )
+        accentTint = Color(
+            red = colour.red,
+            green = colour.green,
+            blue = colour.blue,
+            alpha = 0.15f
+        )
+    }
+
+    /** Restores the shipped accent. */
+    fun resetAccent() = setAccent(defaultAccent)
     /** A toggle's off track and a slider's unfilled track. Reads as a groove, not as a state. */
     val accentTrack = Color(0xFF2A2A30)
 

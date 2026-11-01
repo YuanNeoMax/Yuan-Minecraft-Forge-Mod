@@ -1,6 +1,9 @@
 package com.yuan.client.aurora.panels
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,10 +12,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.yuan.client.aurora.AuroraLayout
 import com.yuan.client.aurora.icons.AuroraIcon
@@ -23,6 +31,7 @@ import com.yuan.client.aurora.scaffold.AuroraSlider
 import com.yuan.client.aurora.scaffold.AuroraToggle
 import com.yuan.client.aurora.scaffold.CONTROL_WIDTH
 import com.yuan.client.aurora.scaffold.auroraScroll
+import com.yuan.client.aurora.scaffold.handCursor
 import com.yuan.client.aurora.theme.Star
 import com.yuan.client.aurora.theme.TypeScale
 import com.yuan.client.aurora.theme.auroraFont
@@ -53,6 +62,44 @@ internal fun AuroraSettingsPanel(
             .padding(bottom = 8.dp)
     ) {
         GroupLabel("显示", first = true)
+        // THE ACCENT, as a row of presets rather than a picker.
+        //
+        // A full RGB picker needs three sliders and a preview, inside a panel that is already
+        // dense -- and the two shades derived from the accent (the dim hover and the faint wash)
+        // would then have to be re-derived by hand at every drag, which is how a tint ends up not
+        // matching its accent. Five well-chosen hues, one click each, shades computed once.
+        //
+        // The swatches are shown AS THE COLOUR, which is the only row in this panel where a control
+        // is not a slider or a toggle: the question is "which colour", and answering it with words
+        // would make the player read five names to pick a hue they could have recognised instantly.
+        AuroraRow("强调色", "开关、滑条与焦点的颜色") {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AuroraLayout.AccentPreset.values().forEach { preset ->
+                    val chosen = currentAccentPreset(layout)
+                    val isCurrent = chosen == preset
+                    Box(
+                        Modifier
+                            .size(18.dp)
+                            .clip(RoundedCornerShape(Star.controlRadius))
+                            .background(Color(preset.color))
+                            .border(
+                                if (isCurrent) 2.dp else 1.dp,
+                                if (isCurrent) Star.textPrimary else Star.hairline,
+                                RoundedCornerShape(Star.controlRadius)
+                            )
+                            .handCursor()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                layout.look.accentColor = preset.color
+                                Star.setAccent(Color(preset.color))
+                                onChanged()
+                            }
+                    )
+                }
+            }
+        }
         AuroraRow("界面缩放", "在游戏缩放之上再乘一层") {
             Row {
                 AuroraSlider(
@@ -184,4 +231,20 @@ private fun GroupLabel(text: String, first: Boolean = false) {
         fontFamily = auroraFont,
         modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 4.dp)
     )
+}
+
+/**
+ * Which preset the layout is currently showing.
+ *
+ * <p>A stored zero means "the shipped accent", so it resolves to STARLIGHT rather than to "no
+ * swatch is selected" -- a row of five swatches with none lit reads as an unset value, which is the
+ * opposite of what the default is.
+ */
+private fun currentAccentPreset(layout: AuroraLayout): AuroraLayout.AccentPreset {
+    val stored = layout.look.accentColor
+    val packed = if (stored == 0) Star.defaultAccent.value.toLong() else stored.toLong()
+    val rgb = packed and 0xFFFFFFL
+    return AuroraLayout.AccentPreset.values().firstOrNull {
+        (it.color.toLong() and 0xFFFFFFL) == rgb
+    } ?: AuroraLayout.AccentPreset.STARLIGHT
 }

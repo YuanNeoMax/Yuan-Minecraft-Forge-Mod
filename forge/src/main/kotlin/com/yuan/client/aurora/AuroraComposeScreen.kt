@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import com.mojang.blaze3d.systems.RenderSystem
 import com.yuan.client.aurora.anim.Motion
+import com.yuan.client.aurora.theme.Star
 import com.yuan.client.gui.toConfig
 import com.yuan.client.render.YuanComposeGlState
 import net.minecraft.client.Minecraft
@@ -200,6 +201,17 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
         // inside animate*AsState calls and non-composable helpers; re-reading it here means a change
         // from the settings card takes effect on the very next frame, with no rebuild.
         Motion.level = layout.motion
+
+        // THE STORED ACCENT IS INSTALLED HERE, and it must run before the first frame.
+        //
+        // A preset writes the packed colour into the layout file, but the palette is process state:
+        // reopening the game would otherwise show the shipped blue whatever was saved. Assigning
+        // four fields per frame is harmless, and it keeps the palette correct across a layout reload
+        // without a second notification path.
+        val storedAccent = layout.look.accentColor
+        if (storedAccent != 0) {
+            Star.setAccent(androidx.compose.ui.graphics.Color(storedAccent))
+        }
 
         val fbo = GL11C.glGetInteger(GL30C.GL_FRAMEBUFFER_BINDING)
         ensureResources(width, height, fbo)
