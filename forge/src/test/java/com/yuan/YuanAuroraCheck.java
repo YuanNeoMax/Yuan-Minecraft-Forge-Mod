@@ -553,6 +553,37 @@ public final class YuanAuroraCheck {
             // ONE pointerInput carries all three gestures. Two chained pointerInput blocks on one
             // node is the consume-order trap this file has paid for before: whichever runs first
             // owns the stream and the other never starts.
+            // ---- a slider states its own range ----------------------------------------------
+            // Without ticks the track is a line with a dot on it: the readout answers "what is it"
+            // but not "how far along is it", and on a 0..600 row that second question needs 600
+            // divided by three done in your head.
+            assert ctlSrc.contains("TICKS, so the track states its own range")
+                    : "a slider's track must show where the value sits in the range";
+            // Only when the range can be divided without the marks merging into a smear: a 0..2
+            // slider would get three marks inside two pixels.
+            assert ctlSrc.contains("quarters >= step * 2f")
+                    : "ticks must be suppressed on ranges too narrow to divide";
+            // Drawn on the track, before the fill and the knob, so the knob covers the tick it
+            // sits on rather than being crossed by it.
+            assert ctlSrc.indexOf("TICKS, so the track")
+                    < ctlSrc.indexOf("size = Size(size.width * fraction, barH)")
+                    : "ticks must be drawn under the fill";
+            // Measured against the track, textDisabled is all but invisible.
+            assert ctlSrc.contains("color = Star.textTertiary,\n                                start = Offset(x, trackTop)")
+                    || ctlSrc.contains("Star.textTertiary")
+                    : "a tick nobody can see claims a scale exists while showing nothing";
+
+            // ---- a changing number keeps its own glyphs still ------------------------------
+            // Proportional digits are different widths, so 10 -> 99 -> 100 makes the readout jump
+            // inside a box that was correctly measured. The width was right; the DIGITS were not.
+            assert ctlSrc.contains("fontFeatureSettings = \"tnum\"")
+                    || ctlSrc.contains("\"tnum\"")
+                    : "readouts must use tabular figures, or they shuffle as the value changes";
+            // One Style, not a Style beside loose parameters: both work, but the reader cannot tell
+            // which copy is live and the next edit may touch the dead one.
+            assert !ctlSrc.contains("fontSize = TypeScale.value,\n            color = if (enabled) Star.textSecondary")
+                    : "the readout must not pass its style both loose and wrapped";
+
             assert ctlSrc.contains("PointerEventType.Scroll")
                     : "the wheel must nudge the slider, or a precise value is unreachable by pointer";
             assert ctlSrc.contains("400_000_000L")

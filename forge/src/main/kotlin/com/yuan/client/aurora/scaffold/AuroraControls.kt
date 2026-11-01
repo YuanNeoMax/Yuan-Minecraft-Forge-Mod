@@ -462,6 +462,41 @@ internal fun AuroraSlider(
                     size = Size(size.width, barH),
                     cornerRadius = radius
                 )
+
+                // TICKS, so the track states its own range.
+                //
+                // A slider without ticks is a line with a dot on it: the value reads correctly but
+                // WHERE that value sits in the range does not. On a 0..600 row a position a third of
+                // the way along is only legible after dividing 600 by 3 in your head, and the
+                // readout beside it does not help with that question -- it answers "what is it",
+                // not "how far along is it".
+                //
+                // Three marks at the quarters, drawn on the track rather than under it: a tick
+                // BELOW would read as a second scale, and at this 24px row there is no room for
+                // two baselines. They are drawn first, under the fill and the knob, so the knob
+                // covers the one it sits on instead of being crossed by it.
+                //
+                // Only when the span is big enough to be worth dividing. A 0..2 toggle-like slider
+                // would get three marks inside two pixels, which is noise pretending to be
+                // information.
+                if (enabled && span > 0f && step > 0f) {
+                    val quarters = (range.endInclusive - range.start) / 4f
+                    if (quarters >= step * 2f) {
+                        for (i in 1..3) {
+                            val x = size.width * (i / 4f)
+                            // textTertiary, NOT textDisabled. Measured against the track it sits
+                            // on (2A2A30), textDisabled (3C3C42) is all but invisible -- a tick
+                            // nobody can see is worse than no tick, because it claims a scale
+                            // exists while showing nothing.
+                            drawLine(
+                                color = Star.textTertiary,
+                                start = Offset(x, trackTop),
+                                end = Offset(x, trackTop + barH),
+                                strokeWidth = 1f
+                            )
+                        }
+                    }
+                }
                 // The fill is the accent, which is this token's second and last job. A grey fill reads
                 // as a progress meter -- something the interface is measuring -- while a blue one reads
                 // as this row's value, which is what a setting is.
@@ -489,10 +524,26 @@ internal fun AuroraSlider(
         Spacer(Modifier.width(8.dp))
         Text(
             format(value),
-            fontSize = TypeScale.value,
-            color = if (enabled) Star.textSecondary else Star.textDisabled,
-            fontFamily = auroraFont,
             maxLines = 1,
+            // ONE Style, not a Style beside loose parameters: passing fontSize, colour and
+            // family twice would work -- style wins -- but it leaves the reader unsure which
+            // copy is live, and the next edit is as likely to touch the dead one.
+            // TABULAR FIGURES, so a changing value does not shuffle its own glyphs.
+            //
+            // Proportional digits are different widths -- in Microsoft YaHei a 1 is narrower
+            // than a 7 -- so a readout going 10 -> 99 -> 100 makes the text jump about inside
+            // a box that was correctly measured. The WIDTH was already right; the DIGITS were
+            // not. The tnum feature asks for the table-figure variants, which gives every
+            // digit the width of a zero: monospaced behaviour without changing font family.
+            //
+            // Expressed through `style` rather than a parameter: this Text overload has no
+            // fontFeatureSettings argument, and the Style holds the same setting.
+            style = TextStyle(
+                fontFeatureSettings = "tnum",
+                fontSize = TypeScale.value,
+                color = if (enabled) Star.textSecondary else Star.textDisabled,
+                fontFamily = auroraFont
+            ),
             // Sized to the widest value this control can produce, rather than to a fixed 46dp.
             //
             // The fixed width was a guess at "how wide is a number", and it is wrong for anything carrying
