@@ -159,6 +159,54 @@ float starSpike(vec2 d, float reach) {
     return clamp(hx + vy, 0.0, 1.0);
 }
 
+/**
+ * One layer of the star field: a single grid of cells, hashed, tinted, twinkled.
+ *
+ * <p>Called once per LAYER with a different cell scale. The parallax comes from the SCALE, not from
+ * moving anything toward the camera: a cell that is twice as large holds stars twice as far away,
+ * so as the player walks a far star crosses fewer cells than a near one. That is real parallax
+ * produced by the sampling itself -- and it leaves every layer world-anchored, which is the
+ * property this file was fixed to preserve. Scaling the grid by the camera's motion instead (the
+ * obvious cheat) is exactly what made the field slide underfoot.
+ *
+ * @param grid        world-space XZ, rotated by the caller into the field's own frame
+ * @param cellSize    this layer's cell size; larger means farther away
+ * @param brightness  this layer's share of the total: the near layer is the brightest, because it
+ *                    is the one the eye resolves first
+ * @param spikeScale  how far this layer's diffraction spikes reach, relative to the near layer --
+ *                    a distant star's cross is not the same on the screen as a near one's
+ */
+vec4 sampleStarLayer(vec2 grid, float cellSize, float brightness, float spikeScale,
+                     bool allowSpikes) {
+    vec2 cell = floor(grid / cellSize);
+    vec2 local = fract(grid / cellSize);
+
+    vec2 o = 0.16 + hash22(cell + domainSeed) * 0.68;
+    float present = hash21(cell * 1.37 + domainSeed);
+
+    float star = 0.0;
+    float spike = 0.0;
+    vec3 starColour = vec3(1.0);
+    if (present > 0.74) {          // ~26% of cells hold a star
+        vec2 dv = local - o;
+        float d = length(dv);
+        float core = 1.0 - smoothstep(STAR_RADIUS * 0.3, STAR_RADIUS, d);
+        float phase = hash11(dot(cell, vec2(12.9898, 78.233)) + domainSeed);
+        float tw = 0.65 + 0.35 * sin(time * TWINKLE_HZ * 6.2831 + phase * 6.2831);
+        star = core * tw;
+        starColour = starTint(present);
+
+        // Spikes only on the bright ones, and only on the layer allowed to have them. Every star
+        // getting a cross would flatten the difference between an ordinary star and a bright one --
+        // the cross is what marks the few worth looking at. `present` doubles as the per-cell seed,
+        // so the same cells stay bright as the field turns rather than flickering between roles.
+        if (allowSpikes && present > 0.93) {
+            spike = starSpike(dv, STAR_RADIUS * 6.5 * spikeScale) * tw;
+        }
+    }
+    return vec4(starColour * star * brightness, star * brightness + spike * brightness * 1.6);
+}
+
 void main() {
     float depth = texture(Sampler0, screenUv).r;
 
@@ -212,38 +260,30 @@ void main() {
         grid.x * ca - grid.y * sa,
         grid.x * sa + grid.y * ca);
 
-    vec2 cell = floor(samplePos / CELL);
-    vec2 local = fract(samplePos / CELL);
+    // ---- THREE LAYERS ---------------------------------------------------------------
+    //
+    // A single world-anchored grid puts every star on ONE plane, which reads as wallpaper: the
+    // pattern is correct and completely flat. Depth needs parallax, and the only honest way to get
+    // it is layers at different world scales -- see sampleStarLayer.
+    //
+    // Three is the minimum that reads as depth. Two gives a single step from "near" to "far" with
+    // nothing in between, and below three the eye stops resolving them as separate distances. The
+    // ratios are about two apart, which puts the middle layer visually halfway; a wider ratio
+    // bunches the far layers together.
+    //
+    // Brightness falls with distance, and the near layer's is the highest: the eye resolves the
+    // near one first and the far ones read as background. Spikes only on the near layer, because a
+    // distant star's cross would be the same size on screen as a near one's -- which is the one
+    // thing that would immediately read as wrong.
+    vec4 nearLayer = sampleStarLayer(samplePos, CELL * 0.55, 1.00, 1.00, true);
+    vec4 midLayer  = sampleStarLayer(samplePos, CELL * 1.20, 0.62, 0.70, false);
+    vec4 farLayer  = sampleStarLayer(samplePos, CELL * 2.60, 0.34, 0.50, false);
 
-    // One star per cell at most, placed in the cell's interior rather than anywhere in [0,1). A
-    // star at the very edge of its cell would be clipped by the cell border; keeping it inside
-    // (0.16..0.84, plus the 0.13 radius, stays within 0.03..0.97) means a single tap is enough and
-    // no star is ever cut in half.
-    vec2 o = 0.16 + hash22(cell + domainSeed) * 0.68;
-    float present = hash21(cell * 1.37 + domainSeed);
-
-    float star = 0.0;
-    float spike = 0.0;
-    vec3 starColour = vec3(1.0);
-    if (present > 0.74) {          // ~26% of cells hold a star
-        vec2 dv = local - o;
-        float d = length(dv);
-        float core = 1.0 - smoothstep(STAR_RADIUS * 0.3, STAR_RADIUS, d);
-        float phase = hash11(dot(cell, vec2(12.9898, 78.233)) + domainSeed);
-        float tw = 0.65 + 0.35 * sin(time * TWINKLE_HZ * 6.2831 + phase * 6.2831);
-        star = core * tw;
-        starColour = starTint(present);
-
-        // SPIKES ONLY ON THE BRIGHT ONES. Every star getting a cross would make the floor busy and
-        // flatten the difference between an ordinary star and a bright one -- the cross is what
-        // marks the few that are worth looking at. `present` doubles as the per-cell seed here, so
-        // the same cells stay bright as the field turns rather than flickering between roles.
-        if (present > 0.93) {
-            // The spike belongs to the brighter half of the twinkle, so it blooms and fades with
-            // its star instead of sitting at constant strength over a dimming core.
-            spike = starSpike(dv, STAR_RADIUS * 6.5) * tw;
-        }
-    }
+    float star = nearLayer.y + midLayer.y + farLayer.y;
+    float spike = nearLayer.w;
+    vec3 starColourMix = (nearLayer.x * vec3(1.0) + midLayer.x * vec3(0.92, 0.95, 1.0)
+            + farLayer.x * vec3(0.86, 0.90, 1.0))
+            / max(star, 1e-4);
 
     // ---- abyss body -----------------------------------------------------------
     // A drifting nebula UNDER the star field: broad, soft, slow. It gives the floor the depth a
@@ -300,10 +340,12 @@ void main() {
     // tint'd by the star's own temperature, then multiplied by the palette's star colour so a
     // custom accent still tints the whole field -- the temperature spread rides on top of the
     // palette rather than replacing it.
-    col += domainColorStar.rgb * starColour * star * domainColorStar.a;
+    // The three layers' colours are already folded together in starColourMix; multiplying by the
+    // palette's star colour keeps a custom accent tinting the whole field.
+    col += domainColorStar.rgb * starColourMix * star * domainColorStar.a;
     // The spike is added separately and more strongly than the core: a glint is a highlight, and
     // blending it at the star's own weight would make it a second smudge instead of a line.
-    col += domainColorStar.rgb * starColour * spike * 1.6;
+    col += domainColorStar.rgb * starColourMix * spike * 1.6;
 
     // The scene colour is NOT sampled. The composite is done by alpha blending against whatever the
     // level renderer left in the target, which avoids reading the framebuffer that is currently
