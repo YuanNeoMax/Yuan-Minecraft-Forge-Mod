@@ -273,6 +273,8 @@ internal fun AuroraRail(
                 val interaction = remember(entry.id) { MutableInteractionSource() }
                 val hovered by interaction.collectIsHoveredAsState()
                 val isTarget = dragFrom >= 0 && dragTarget == index
+                // The row being carried, so the drag has a visible beginning as well as an end.
+                val isSource = dragFrom == index
 
                 // THE ENTRY'S OWN RESOLVED APPEARANCE: entry override -> category -> rail.
                 // Reading `look.rail*` directly here is what made per-entry and per-category
@@ -332,6 +334,18 @@ internal fun AuroraRail(
                         // Drawn as a border on the same clipped shape, so it follows the entry's own
                         // resolved corner radius; it appears only while the keyboard is the input
                         // in use (see FocusState.keyboardActive).
+                        // The SOURCE of a reorder lifts off the list: dimmer and slightly smaller,
+                        // as though held rather than sitting in the column. Without it the drag
+                        // showed only where the row would LAND, so with a tinted target and an
+                        // ordinary-looking source it was easy to lose track of the row under the
+                        // button. The pair now reads as one movement with a beginning and an end.
+                        .graphicsLayer {
+                            if (isSource) {
+                                alpha = 0.55f
+                                scaleX = 0.97f
+                                scaleY = 0.97f
+                            }
+                        }
                         .then(
                             if (focused) {
                                 Modifier.border(2.dp, Star.accent, RoundedCornerShape(entryCorner))

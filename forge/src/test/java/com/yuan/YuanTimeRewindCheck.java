@@ -170,6 +170,25 @@ public final class YuanTimeRewindCheck {
                     : "a removed dimension must degrade to rotation only, not to a guessed position";
         }
 
+        // ---- the per-stack scan reads each sword ONCE --------------------------------
+        // Two helpers each deserialised the same NBT: one to ask whether the stack counts at all,
+        // then another to ask what window it wants. On a hundred-player server that is ~3,800 full
+        // deserialisations per second on the main thread, half of them re-asking a settled question.
+        {
+            String evSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindEvents.java"));
+            // The cheap item test must come before the deserialisation: most of those stacks are
+            // not god swords, and comparing an item is free next to parsing NBT.
+            assert evSrc.indexOf("if (!isGodSword(stack)) return currentMax;")
+                    < evSrc.indexOf("config.read(stack)", evSrc.indexOf(
+                            "private static int enabledRewindWindowSeconds(int currentMax"))
+                    : "the cheap item test must precede the NBT read";
+            // And the disabled case returns before touching the window field: one read answers both
+            // questions now.
+            assert evSrc.contains("if (!config.rewindEnabled && !config.rewindDeathEnabled) return currentMax;")
+                    : "one config read must answer both \"does it count\" and \"what window\"";
+        }
+
         assert rewindEvents.contains("shouldAttemptDeathRewind") : "death retry cap helper missing";
         assert rewindEvents.contains("shouldAttemptDeathRewind(retry")
                 : "death retry cap must be enforced";

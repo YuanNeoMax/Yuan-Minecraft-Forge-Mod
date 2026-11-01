@@ -591,6 +591,14 @@ public final class YuanAuroraCheck {
             // The heading is the target, and it states the state without counting rows.
             assert foldSrc.contains("private fun SectionLabel(name: String, folded: Boolean, onToggle: () -> Unit)")
                     : "the heading must be the fold control";
+            // ---- a reorder shows both ends ---------------------------------------------------
+            // Only the destination used to be marked, so with a tinted target and an ordinary
+            // source it was easy to lose track of the row under the button.
+            assert grid.contains("val isSource = dragFrom == index")
+                    : "a drag must mark the row being carried, not only its destination";
+            assert grid.contains("alpha = 0.55f")
+                    : "the carried row must visually lift off the list";
+
             assert foldSrc.contains("rotationZ = 180f * turn")
                     : "the marker must turn with the fold, or the triangle and the rows read as two events";
 

@@ -766,13 +766,41 @@ public final class YuanTimeRewindRestorer {
     }
 
     /**
-     * An entity may only be discarded when the recorder positively saw it appear after the target
-     * tick. Absence from the retained history is not such evidence: entities whose NBT never
-     * changes (armor stands, paintings, idle livestock) stop being snapshotted once their single
-     * entry ages out of the pruning window, and used to be deleted as "newly created" by that.
+     * An entity may only be discarded when the recorder POSITIVELY saw it appear after [targetTick].
+     *
+     * <p>THE DOCUMENT AND THE CODE USED TO DISAGREE HERE, and the discrepancy happened to be
+     * harmless -- which is the worst kind, because it invites a later change that is not.
+     *
+     * <p>`entityFirstSeenTick` is populated the first time a recorder notices an entity and is
+     * never pruned (removing an entry would make a returning entity look newly born, the very
+     * failure this predicate exists to prevent). So in practice a null first-seen tick can only
+     * mean "appeared within the last snapshot interval, before the recorder had looked": an entity
+     * that genuinely is newer than the target tick.
+     *
+     * <p>That reasoning depends on the map being unpruned, and nothing said so. If a future change
+     * pruned it -- by chunk unload, say -- null would also describe entities that have stood in the
+     * world for hours, and every one of them would be deleted on the next rewind.
+     *
+     * <p>So the contract is restated as the code behaves, with the precondition written down: the
+     * overload below states whether absence may be read as evidence, and a caller that knows the
+     * registry is incomplete passes false and keeps the entity instead of deleting it.
+     *
+     * @param firstSeenTick         when the recorder first saw this entity, or null if it has not
+     *                              been seen yet
+     * @param targetTick            the tick being rewound to
+     * @param absenceMeansNewEntity true only when the first-seen registry is complete for this
+     *                              level, i.e. a missing entry can only mean "too new to have been
+     *                              recorded"
      */
+    public static boolean isProvablyCreatedAfter(Long firstSeenTick, long targetTick,
+                                                 boolean absenceMeansNewEntity) {
+        if (firstSeenTick == null) return absenceMeansNewEntity;
+        return firstSeenTick > targetTick;
+    }
+
+    /** The unpruned-registry call, which is what every current caller means. */
     public static boolean isProvablyCreatedAfter(Long firstSeenTick, long targetTick) {
-        return firstSeenTick == null || firstSeenTick > targetTick;
+        return isProvablyCreatedAfter(firstSeenTick, targetTick, true);
     }
 
     private static void applyWorldState(ServerLevel level, YuanGodSwordConfig config,

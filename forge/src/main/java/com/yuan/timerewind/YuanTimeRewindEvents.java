@@ -467,18 +467,25 @@ Component.literal("\u00a7c[\u56de\u6eaf] \u81ea\u6551\u5931\u8d25\uff0c\u8bf7\u4
         return maxWindowSeconds;
     }
 
+    /**
+     * Folds a stack into the running maximum, reading its config ONCE.
+     *
+     * <p>The old pair of helpers read the sword's NBT TWICE for every qualifying stack: once in
+     * {@code isEnabledRecordingSword} to ask whether it counts at all, then again here to ask what
+     * window it wants. On a hundred-player server that is ~3,800 full NBT deserialisations per
+     * second on the main thread, and half of them were asking a question the first read had already
+     * answered.
+     *
+     * <p>The cheap test comes first and returns immediately: {@code isGodSword} is an item
+     * comparison, while the deserialisation is the expensive half -- and the overwhelming majority
+     * of the 3,800 stacks are not god swords.
+     */
     private static int enabledRewindWindowSeconds(int currentMax, ItemStack stack) {
-        if (!isEnabledRecordingSword(stack)) return currentMax;
+        if (!isGodSword(stack)) return currentMax;
         YuanGodSwordConfig config = new YuanGodSwordConfig();
         config.read(stack);
+        if (!config.rewindEnabled && !config.rewindDeathEnabled) return currentMax;
         return Math.max(currentMax, Math.max(1, Math.min(600, config.rewindWindowSeconds)));
-    }
-
-    private static boolean isEnabledRecordingSword(ItemStack stack) {
-        if (!isGodSword(stack)) return false;
-        YuanGodSwordConfig config = new YuanGodSwordConfig();
-        config.read(stack);
-        return config.rewindEnabled || config.rewindDeathEnabled;
     }
 
     private static ItemStack findSword(ServerPlayer player) {
