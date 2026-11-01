@@ -134,6 +134,17 @@ public final class YuanTimeRewindRecorder {
     }
 
     private void snapshotBlockEntities(long tick, boolean containersOnly) {
+        // WHAT THE SCAN DID NOT SEE IS GONE. `lastBlockEntity` is the baseline a container's delta
+        // is measured against, and it used to be cleaned only when the same position was overwritten
+        // by a block change. An unloaded chunk stops being walked, so its entries stayed forever --
+        // a slow leak that also made the FIRST scan after a reload compare against a baseline from
+        // before the chunk was dropped, merging every intervening change into one coarse delta.
+        //
+        // Pruning against what this pass saw fixes both, and it is cheaper than listening for chunk
+        // unloads: the walk already visits every loaded block entity, so recording the visited
+        // positions costs one set insertion and removes the need for any event bookkeeping or
+        // ordering assumption.
+        java.util.Set<net.minecraft.core.BlockPos> seen = new java.util.HashSet<>();
         for (net.minecraft.server.level.ChunkHolder holder : level.getChunkSource().chunkMap.getChunks()) {
             LevelChunk chunk = holder.getFullChunk();
             if (chunk == null) continue;
@@ -142,6 +153,7 @@ public final class YuanTimeRewindRecorder {
                     continue;
                 }
                 CompoundTag current = be.saveWithFullMetadata();
+                seen.add(be.getBlockPos());
                 CompoundTag previous = lastBlockEntity.get(be.getBlockPos());
                 if (previous == null) {
                     lastBlockEntity.put(be.getBlockPos(), current);
@@ -150,6 +162,11 @@ public final class YuanTimeRewindRecorder {
                     lastBlockEntity.put(be.getBlockPos(), current);
                 }
             }
+        }
+        // Only for the full pass. A containers-only pass did not visit the non-container entries,
+        // so pruning against it would delete baselines the next full pass still needs.
+        if (!containersOnly) {
+            lastBlockEntity.keySet().retainAll(seen);
         }
     }
 

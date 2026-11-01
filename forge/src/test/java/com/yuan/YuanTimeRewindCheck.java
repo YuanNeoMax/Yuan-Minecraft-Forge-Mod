@@ -212,6 +212,24 @@ public final class YuanTimeRewindCheck {
                     : "finalise before clearing: a cleared pending is not finalisable";
         }
 
+        // ---- a container baseline must not outlive its chunk ---------------------------
+        // `lastBlockEntity` is what a container's delta is measured against, and it used to be
+        // cleaned only when a block change overwrote the same position. An unloaded chunk stops
+        // being walked, so those entries lived for the whole session -- a slow leak that ALSO made
+        // the first scan after a reload compare against a pre-unload baseline, merging every
+        // intervening change into one coarse delta.
+        {
+            String recSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindRecorder.java"));
+            assert recSrc.contains("retainAll(seen)")
+                    : "container baselines must be pruned against what the scan actually saw";
+            assert recSrc.contains("if (!containersOnly)")
+                    : "a containers-only pass must not prune: it never visited the other entries";
+            // The visited set has to be recorded during the same walk, not derived afterwards.
+            assert recSrc.contains("seen.add(be.getBlockPos())")
+                    : "the prune must be driven by the walk that produced the baselines";
+        }
+
         assert rewindEvents.contains("shouldAttemptDeathRewind") : "death retry cap helper missing";
         assert rewindEvents.contains("shouldAttemptDeathRewind(retry")
                 : "death retry cap must be enforced";
