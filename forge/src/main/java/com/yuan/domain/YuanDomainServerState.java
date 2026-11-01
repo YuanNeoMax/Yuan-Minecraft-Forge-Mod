@@ -30,9 +30,10 @@ public final class YuanDomainServerState {
         return ACTIVE.containsKey(holder);
     }
 
-    public static void broadcast(UUID holder, boolean active, boolean starfield) {
+    public static void broadcast(UUID holder, boolean active, boolean starfield,
+                                 float starDensity, float spinScale, boolean starSpikes) {
         Yuan.CHANNEL.send(PacketDistributor.ALL.noArg(),
-                new YuanDomainStatePacket(holder, active, starfield));
+                new YuanDomainStatePacket(holder, active, starfield, starDensity, spinScale, starSpikes));
     }
 
     @SubscribeEvent
@@ -40,7 +41,7 @@ public final class YuanDomainServerState {
         Player player = event.getEntity();
         if (ACTIVE.remove(player.getUUID()) != null) {
             // The star-field flag is irrelevant on a deactivation, but the packet shape is fixed.
-            broadcast(player.getUUID(), false, false);
+            broadcast(player.getUUID(), false, false, 1.0f, 1.0f, true);
         }
     }
 

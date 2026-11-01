@@ -41,6 +41,7 @@ internal object GodSwordBinding {
         "freezeBossAI" -> s.freezeBossAI
         "showMessage" -> s.showMessage
         "domainStarfield" -> s.domainStarfield
+        "domainStarSpikes" -> s.domainStarSpikes
         "slashEnabled" -> s.slashEnabled
         "slashDepthTest" -> s.slashDepthTest
         "slashRandomAngle" -> s.slashRandomAngle
@@ -72,6 +73,8 @@ internal object GodSwordBinding {
 
     /** The numeric value a slider row shows. */
     internal fun readFloat(id: String, s: V9Holder): Float = when (id) {
+        "domainStarDensity" -> s.domainStarDensity
+        "domainSpinScale" -> s.domainSpinScale
         "startDuration" -> s.startDuration
         "endDuration" -> s.endDuration
         "grayStrength" -> s.grayStrength
@@ -179,6 +182,7 @@ internal object GodSwordBinding {
             "freezeBossAI" -> s.freezeBossAI = value
             "showMessage" -> s.showMessage = value
             "domainStarfield" -> s.domainStarfield = value
+            "domainStarSpikes" -> s.domainStarSpikes = value
             "slashEnabled" -> s.slashEnabled = value
             "slashDepthTest" -> s.slashDepthTest = value
             "slashRandomAngle" -> s.slashRandomAngle = value
@@ -212,6 +216,8 @@ internal object GodSwordBinding {
     internal fun writeFloat(id: String, s: V9Holder, value: Float) {
         val asInt = Math.round(value)
         when (id) {
+            "domainStarDensity" -> s.domainStarDensity = value
+            "domainSpinScale" -> s.domainSpinScale = value
             "startDuration" -> s.startDuration = value
             "endDuration" -> s.endDuration = value
             "grayStrength" -> s.grayStrength = value
@@ -511,6 +517,10 @@ internal object GodSwordBinding {
         "cooldown" -> 0f..100f
         "particleCount" -> 1f..16f
         "particleSpin" -> 0f..3f
+    // The field's own appearance. Density below 0.2 is an almost empty floor and spin above 3 is
+    // nausea at the horizon, so the sliders cannot reach past what the shader was tuned for.
+    "domainStarDensity" -> 0.2f..1f
+    "domainSpinScale" -> 0f..3f
         "stopRadius" -> 0f..128f
         "startDuration", "endDuration" -> 0.1f..2f
         "slashDuration" -> 0.05f..1f

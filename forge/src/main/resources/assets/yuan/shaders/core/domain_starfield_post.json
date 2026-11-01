@@ -1,19 +1,10 @@
 {
-  "blend": {
-    "func": "add",
-    "srcrgb": "srcalpha",
-    "dstrgb": "1-srcalpha"
-  },
+  "blend": {"func": "add", "srcrgb": "srcalpha", "dstrgb": "1-srcalpha"},
   "vertex": "yuan:domain_starfield_post",
   "fragment": "yuan:domain_starfield_post",
-  "attributes": [
-    "Position",
-    "UV0"
-  ],
+  "attributes": [ "Position", "UV0" ],
   "samplers": [
-    {
-      "name": "Sampler0"
-    }
+    { "name": "Sampler0" }
   ],
   "uniforms": [
     {
@@ -87,6 +78,24 @@
       "type": "float",
       "count": 4,
       "values": [ 1.0, 0.48, 0.36, 0.55 ]
+    },
+    {
+      "name": "domainStarDensity",
+      "type": "float",
+      "count": 1,
+      "values": [ 1.0 ]
+    },
+    {
+      "name": "domainSpinScale",
+      "type": "float",
+      "count": 1,
+      "values": [ 1.0 ]
+    },
+    {
+      "name": "domainSpikesOn",
+      "type": "float",
+      "count": 1,
+      "values": [ 1.0 ]
     }
   ]
 }

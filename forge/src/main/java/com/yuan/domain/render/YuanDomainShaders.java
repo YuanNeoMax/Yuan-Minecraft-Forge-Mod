@@ -43,6 +43,9 @@ public final class YuanDomainShaders {
     private static CCUniform uInverseViewProjection;
     private static CCUniform uCenter;
     private static CCUniform uCameraWorldPos;
+    private static CCUniform uStarDensity;
+    private static CCUniform uSpinScale;
+    private static CCUniform uSpikesOn;
 
     // Values the onApply callback pushes. Held in fields because apply can run more than once per
     // frame (several buffers, several passes) and every apply must write the same values.
@@ -55,6 +58,10 @@ public final class YuanDomainShaders {
     private static final Vector4f COLOR_BASE = new Vector4f(0.0f, 0.02f, 0.03f, 0.92f);
     private static final Vector4f COLOR_STAR = new Vector4f(0.75f, 0.85f, 1.0f, 1.0f);
     private static final Vector4f COLOR_CORE = new Vector4f(1.0f, 0.48f, 0.36f, 0.55f);
+
+    private static float starDensity = 1.0f;
+    private static float spinScale = 1.0f;
+    private static float spikesOn = 1.0f;
 
     /** Accumulated seconds. A float cannot hold an absolute clock: see {@link #advanceClock}. */
     private static float elapsedSeconds;
@@ -75,7 +82,8 @@ public final class YuanDomainShaders {
                 && uTime != null && uSeed != null && uIntensity != null
                 && uColorBase != null && uColorStar != null && uColorCore != null
                 && uInverseViewProjection != null && uCenter != null
-                && uCameraWorldPos != null;
+                && uCameraWorldPos != null
+                && uStarDensity != null && uSpinScale != null && uSpikesOn != null;
     }
 
     @SubscribeEvent
@@ -89,6 +97,9 @@ public final class YuanDomainShaders {
                     uTime = postShader.getUniform("time");
                     uSeed = postShader.getUniform("domainSeed");
                     uIntensity = postShader.getUniform("domainIntensity");
+        uStarDensity = postShader.getUniform("domainStarDensity");
+        uSpinScale = postShader.getUniform("domainSpinScale");
+        uSpikesOn = postShader.getUniform("domainSpikesOn");
                     uColorBase = postShader.getUniform("domainColorBase");
                     uColorStar = postShader.getUniform("domainColorStar");
                     uColorCore = postShader.getUniform("domainColorCore");
@@ -106,7 +117,8 @@ public final class YuanDomainShaders {
                             uTime != null, uSeed != null, uIntensity != null,
                             uColorBase != null, uColorStar != null, uColorCore != null,
                             uInverseViewProjection != null, uCenter != null,
-                            uCameraWorldPos != null);
+                            uCameraWorldPos != null,
+                uStarDensity != null, uSpinScale != null, uSpikesOn != null);
                 });
     }
 
@@ -116,6 +128,18 @@ public final class YuanDomainShaders {
      * <p>Called once per holder per frame, immediately before that holder's draw. The callback reads
      * these fields when it runs, so the values in force are always the ones for the pass being drawn.
      */
+    /**
+     * The domain's three appearance settings, pushed each frame from the sword's config.
+     *
+     * <p>Separate from update() because they change on a different schedule: the matrices and the
+     * clock change every frame, these change when the player moves a slider.
+     */
+    public static void setAppearance(float density, float spin, boolean spikes) {
+        starDensity = density;
+        spinScale = spin;
+        spikesOn = spikes ? 1.0f : 0.0f;
+    }
+
     public static void update(float seconds, float strength, Matrix4f inverseViewProjection,
                               Vector3f center, Vector3f cameraWorldPos, float holderSeed) {
         time = seconds;
@@ -133,6 +157,9 @@ public final class YuanDomainShaders {
         uTime.set(time);
         uSeed.set(seed);
         uIntensity.set(intensity);
+        uStarDensity.set(starDensity);
+        uSpinScale.set(spinScale);
+        uSpikesOn.set(spikesOn);
         uColorBase.set(COLOR_BASE);
         uColorStar.set(COLOR_STAR);
         uColorCore.set(COLOR_CORE);

@@ -230,6 +230,14 @@ public final class YuanDomainRender {
             CENTER.set((float) player.getX(), (float) player.getY(), (float) player.getZ());
             CAMERA_WORLD_POS.set((float) camera.x, (float) camera.y, (float) camera.z);
 
+            // The appearance travels WITH the domain state, not from a local config: this client
+            // can only read its own sword, and every holder's floor must look the same to everyone
+            // who can see it.
+            YuanDomainShaders.setAppearance(
+                    entry.getValue().starDensity(),
+                    entry.getValue().spinScale(),
+                    entry.getValue().starSpikes());
+
             YuanDomainShaders.update(seconds, strength, INVERSE_VIEW_PROJECTION, CENTER,
                     CAMERA_WORLD_POS, seedFor(holder));
 

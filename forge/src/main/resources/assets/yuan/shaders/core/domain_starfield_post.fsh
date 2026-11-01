@@ -37,7 +37,24 @@ in vec2 screenUv;
 
 out vec4 fragColor;
 
-const float CELL = 1.0;          // one star cell per block
+// THE THREE APPEARANCE VALUES ARE UNIFORMS, not constants. They were constants because there was
+// exactly one right answer; now that they are settings, the shader states each one's default in
+// its declaration comment and lets the Java side override it.
+//
+// Density is a CELL SCALE rather than a threshold on the "does this cell hold a star" test: scaling
+// the cell changes how many cells fall inside a screen, so a higher density means more stars per
+// screen with the same 26% fill rate. Lowering the threshold instead would not work -- it would
+// change the SIZE relationship between adjacent stars and make the field look like it had gaps.
+uniform float domainStarDensity;
+// A MULTIPLE of the tuned spin rate. The tuned rate was chosen against the domain radius and the
+// fog distance (see SPIN's note below); exposing the raw rate would invite values that read well
+// close up and are nauseating at the horizon.
+uniform float domainSpinScale;
+// 0 or 1. Compared against a float rather than declared bool: this project's uniform helper binds
+// floats, and a bool uniform has no setter there.
+uniform float domainSpikesOn;
+
+const float BASE_CELL = 1.0;     // one star cell per block at density 1.0
 const float STAR_RADIUS = 0.13;  // star half-size within its cell
 const float TWINKLE_HZ = 0.35;
 
@@ -47,7 +64,7 @@ const float TWINKLE_HZ = 0.35;
 // R = 128), so the value is pinned at 1.28 / 128 = 0.01 -- ~2 blocks per second at 200 blocks out,
 // visible motion underfoot, and not a lurch at the horizon.
 // The value that reads well in a small circle is nausea once the floor reaches the fog.
-const float SPIN = 1.28 / 128.0;
+const float BASE_SPIN = 1.28 / 128.0;
 
 // Distance over which the glow around the caster falls off, in blocks. This is the only thing left
 // that has a size at all; the floor itself extends to the horizon.
@@ -253,7 +270,9 @@ void main() {
     // field is infinite and has no visible pivot. Rotation rather than an outward drift: drifting
     // re-samples each cell's contents as it travels, so stars pop in and out at cell boundaries,
     // while a rigid rotation moves the pattern continuously with no seams.
-    float angle = time * SPIN;
+    // Density scales the CELL SIZE: more density, more cells per screen, same fill rate.
+    float cell = BASE_CELL / max(domainStarDensity, 0.2);
+    float angle = time * BASE_SPIN * max(domainSpinScale, 0.0);
     float ca = cos(angle);
     float sa = sin(angle);
     vec2 samplePos = vec2(
@@ -275,9 +294,10 @@ void main() {
     // near one first and the far ones read as background. Spikes only on the near layer, because a
     // distant star's cross would be the same size on screen as a near one's -- which is the one
     // thing that would immediately read as wrong.
-    vec4 nearLayer = sampleStarLayer(samplePos, CELL * 0.55, 1.00, 1.00, true);
-    vec4 midLayer  = sampleStarLayer(samplePos, CELL * 1.20, 0.62, 0.70, false);
-    vec4 farLayer  = sampleStarLayer(samplePos, CELL * 2.60, 0.34, 0.50, false);
+    bool spikesOn = domainSpikesOn > 0.5;
+    vec4 nearLayer = sampleStarLayer(samplePos, cell * 0.55, 1.00, 1.00, spikesOn);
+    vec4 midLayer  = sampleStarLayer(samplePos, cell * 1.20, 0.62, 0.70, false);
+    vec4 farLayer  = sampleStarLayer(samplePos, cell * 2.60, 0.34, 0.50, false);
 
     float star = nearLayer.y + midLayer.y + farLayer.y;
     float spike = nearLayer.w;

@@ -19,8 +19,15 @@ import net.minecraftforge.fml.common.Mod;
 @Mod.EventBusSubscriber(modid = "yuan", bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
 public final class YuanDomainClient {
 
-    /** One holder's domain: whether the star-field floor is on. */
-    public record Entry(boolean starfield) {
+    /**
+     * One holder's domain: the star-field toggle plus its appearance.
+     *
+     * <p>The appearance travels here rather than being read from a local config for the same reason
+     * the toggle does: a client can only read its OWN sword. Anything that decides what another
+     * player's floor looks like has to arrive over the network, or every client would draw a
+     * different sky for the same domain.
+     */
+    public record Entry(boolean starfield, float starDensity, float spinScale, boolean starSpikes) {
     }
 
     private static final Map<UUID, Entry> ACTIVE = new HashMap<>();
@@ -29,9 +36,10 @@ public final class YuanDomainClient {
     private YuanDomainClient() {
     }
 
-    public static void apply(UUID holder, boolean active, boolean starfield) {
+    public static void apply(UUID holder, boolean active, boolean starfield,
+                             float starDensity, float spinScale, boolean starSpikes) {
         if (active) {
-            ACTIVE.put(holder, new Entry(starfield));
+            ACTIVE.put(holder, new Entry(starfield, starDensity, spinScale, starSpikes));
         } else {
             ACTIVE.remove(holder);
         }

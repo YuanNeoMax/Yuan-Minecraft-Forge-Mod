@@ -38,7 +38,8 @@ public class YuanDomainRequestPacket {
                 return;
             }
             boolean active = YuanDomainServerState.toggle(sender.getUUID());
-            YuanDomainServerState.broadcast(sender.getUUID(), active, config.domainStarfield);
+            YuanDomainServerState.broadcast(sender.getUUID(), active, config.domainStarfield,
+                    config.domainStarDensity, config.domainSpinScale, config.domainStarSpikes);
             LOGGER.info("domain {} by {}", active ? "expanded" : "collapsed",
                     sender.getGameProfile().getName());
             sender.displayClientMessage(Component.literal(active ? "§c✦ 领域展开" : "§c✦ 领域收束"), true);

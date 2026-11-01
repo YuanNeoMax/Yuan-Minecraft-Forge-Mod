@@ -196,6 +196,37 @@ public final class YuanGodSwordConfig {
     public boolean domainStarfield = true;
 
     /**
+     * How many stars the field holds, 0.2..1.0.
+     *
+     * <p>The density is the one visual property a player is actually likely to want changed, and
+     * for opposite reasons at the two ends: a busier field for someone who wants the floor to feel
+     * like a sky, a sparser one for someone who finds it busy behind their own build. Both are
+     * legitimate and neither is a bug, so it is a slider rather than a tuned constant.
+     */
+    public float domainStarDensity = 1.0f;
+
+    /**
+     * How fast the field turns, 0.0..3.0 as a multiple of the tuned default.
+     *
+     * <p>Zero stops it outright -- the field is still a field, and a player who finds the motion
+     * distracting behind a build can keep the effect without the movement.
+     *
+     * <p>A MULTIPLE rather than radians-per-second: the default speed was tuned against the domain
+     * radius and the fog distance (see SPIN's note in the shader), and exposing the raw rate invites
+     * values that read well in a small circle and are nauseating once the floor reaches the horizon.
+     */
+    public float domainSpinScale = 1.0f;
+
+    /**
+     * Whether bright stars throw a diffraction cross.
+     *
+     * <p>On by default, because it is what separates a star from a dot. Off for a cleaner
+     * monochrome floor, and off is also the honest choice for a very high star density -- at the
+     * top of the density slider the crosses are what makes the field read as busy.
+     */
+    public boolean domainStarSpikes = true;
+
+    /**
      * Every declared instance field, in declaration order. Used by the three pure in-memory
      * mirrors below so none of them has to name all 166 fields by hand -- a hand-written list is
      * exactly how a field gets forgotten when one is added.
@@ -317,6 +348,18 @@ public final class YuanGodSwordConfig {
         if (tag.contains("slashFadeStart")) slashFadeStart = clamp(tag.getFloat("slashFadeStart"), 0.3f, 0.95f);
         if (tag.contains("slashFadeDuration")) slashFadeDuration = clamp(tag.getFloat("slashFadeDuration"), 0.02f, 0.7f);
         if (tag.contains("slashSurfaceOffset")) slashSurfaceOffset = clamp(tag.getFloat("slashSurfaceOffset"), 0f, 0.5f);
+
+        // The domain's appearance. Clamped here because the reflective read above assigns by
+        // declared type and applies no range -- an out-of-range value written by a hand-edited
+        // preset would otherwise reach the shader as-is. The ranges are the ones the shader was
+        // tuned against: density below 0.2 is an almost empty floor, and spin above 3 is nausea at
+        // the horizon rather than speed.
+        if (tag.contains("domainStarDensity")) {
+            domainStarDensity = clamp(tag.getFloat("domainStarDensity"), 0.2f, 1.0f);
+        }
+        if (tag.contains("domainSpinScale")) {
+            domainSpinScale = clamp(tag.getFloat("domainSpinScale"), 0.0f, 3.0f);
+        }
         if (tag.contains("slashRollRange")) slashRollRange = clamp(tag.getFloat("slashRollRange"), 0f, 360f);
         if (tag.contains("renderStyle")) renderStyle = Math.max(0, Math.min(5, tag.getInt("renderStyle")));
         if (tag.contains("silkBrightness")) silkBrightness = clamp(tag.getFloat("silkBrightness"), -1f, 1f);

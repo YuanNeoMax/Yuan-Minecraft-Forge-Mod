@@ -109,6 +109,13 @@ internal val v9Sections = listOf(
     )),
     V9Section("领域", "领域展开的范围。", listOf(
         V9Row("domainStarfield", "星渊地面", "地形表面被星海替换；关闭后领域只剩其它层", 0, "领域", "领域展开的范围。"),
+        // THE FIELD'S OWN APPEARANCE. It had no controls at all: the stars, the nebulae, the rings
+        // and the colour spread were all constants, so "more of this" and "less of that" were not
+        // available. These three are the ones a player actually reaches for -- how busy the sky
+        // looks, whether it moves, and whether bright stars throw a cross.
+        V9Row("domainStarDensity", "星场密度", "星点的疏密；1.0 为默认", 2, "领域", "领域展开的范围。"),
+        V9Row("domainSpinScale", "星场转速", "0 可完全静止；1.0 为默认速度", 2, "领域", "领域展开的范围。"),
+        V9Row("domainStarSpikes", "恒星十字光芒", "亮星的四芒衍射；密度高时可关掉以免过花", 0, "领域", "领域展开的范围。"),
     )),
     V9Section("预设", "快速保存与载入整套配置。", listOf(
         V9Row("preset", "配置预设", "槽 1-3 保存/载入", 4, "预设", "快速保存与载入整套配置。")

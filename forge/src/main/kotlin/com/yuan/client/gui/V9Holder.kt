@@ -176,6 +176,9 @@ internal class V9Holder(initial: V9State) {
     var uiSwitchTextOn: String by mutableStateOf(initial.uiSwitchTextOn)
     var uiSwitchTextOff: String by mutableStateOf(initial.uiSwitchTextOff)
     var domainStarfield: Boolean by mutableStateOf(initial.domainStarfield)
+    var domainStarDensity: Float by mutableStateOf(initial.domainStarDensity)
+    var domainSpinScale: Float by mutableStateOf(initial.domainSpinScale)
+    var domainStarSpikes: Boolean by mutableStateOf(initial.domainStarSpikes)
     var rewindEnabled: Boolean by mutableStateOf(initial.rewindEnabled)
     var rewindWindowSeconds: Int by mutableStateOf(initial.rewindWindowSeconds)
     var rewindScopeMode: Int by mutableStateOf(initial.rewindScopeMode)
@@ -344,6 +347,9 @@ internal class V9Holder(initial: V9State) {
         uiSwitchTextOn = uiSwitchTextOn,
         uiSwitchTextOff = uiSwitchTextOff,
         domainStarfield = domainStarfield,
+        domainStarDensity = domainStarDensity,
+        domainSpinScale = domainSpinScale,
+        domainStarSpikes = domainStarSpikes,
         rewindEnabled = rewindEnabled,
         rewindWindowSeconds = rewindWindowSeconds,
         rewindScopeMode = rewindScopeMode,
@@ -513,6 +519,9 @@ internal class V9Holder(initial: V9State) {
         uiSwitchTextOn = s.uiSwitchTextOn
         uiSwitchTextOff = s.uiSwitchTextOff
         domainStarfield = s.domainStarfield
+        domainStarDensity = s.domainStarDensity
+        domainSpinScale = s.domainSpinScale
+        domainStarSpikes = s.domainStarSpikes
         rewindEnabled = s.rewindEnabled
         rewindWindowSeconds = s.rewindWindowSeconds
         rewindScopeMode = s.rewindScopeMode
