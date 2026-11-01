@@ -798,9 +798,53 @@ public final class YuanTimeRewindRestorer {
         }
         if (config.rewindScoreboard && latest.scoreboard() != null) {
             new ScoreboardSaveData(level.getScoreboard()).load(latest.scoreboard());
+            // RESEND WHAT load() CHANGED, because load() sends nothing.
+            //
+            // ScoreboardSaveData.load runs through the base Scoreboard methods, while the
+            // packets that tell clients about an objective or a team are emitted by
+            // ServerScoreboard hooks that load() never calls. The server sidebar, team colours
+            // and objective list were therefore correct on the server and stale on every client
+            // until something else touched the scoreboard. Re-announcing each entry is only the
+            // announcement: the data is already in place.
+            reannounceScoreboard(level);
         }
         if (config.rewindRaids && latest.raids() != null) {
             restoreRaids(level, latest.raids());
+        }
+    }
+
+    /**
+     * Re-announces every objective, team and displayed slot so clients catch up with a bulk load.
+     *
+     * <p>Guarded on the type: only a {@code ServerScoreboard} has the hooks, and a rewind against a
+     * plain {@code Scoreboard} has nobody to tell.
+     *
+     * <p>The order matters -- objectives exist before scores, teams before their members, and the
+     * display slots last, because a client that receives a slot before the objective exists silently
+     * drops the assignment.
+     */
+    private static void reannounceScoreboard(ServerLevel level) {
+        try {
+            net.minecraft.world.scores.Scoreboard current = level.getScoreboard();
+            if (!(current instanceof net.minecraft.server.ServerScoreboard server)) {
+                return;
+            }
+            for (net.minecraft.world.scores.Objective objective : server.getObjectives()) {
+                server.onObjectiveChanged(objective);
+            }
+            for (net.minecraft.world.scores.PlayerTeam team : server.getPlayerTeams()) {
+                server.onTeamChanged(team);
+            }
+            for (int slot = 0; slot < 19; slot++) {
+                net.minecraft.world.scores.Objective shown = server.getDisplayObjective(slot);
+                if (shown != null) {
+                    server.setDisplayObjective(slot, shown);
+                }
+            }
+        } catch (RuntimeException e) {
+            // A scoreboard that cannot be re-announced must not abort a rewind that already
+            // restored the world: the data is correct on the server either way.
+            LOGGER.warn("[YuanTimeRewind] failed to re-announce scoreboard", e);
         }
     }
 

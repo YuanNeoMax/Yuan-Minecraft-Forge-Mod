@@ -698,6 +698,17 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                                         markDirty()
                                         previewConfig(holder.snapshot().toConfig())
                                     },
+                                    // Fold state lives in the layout (it is arrangement data, so it
+                                    // survives a restart) while the panel receives it as a value.
+                                    foldedSections = layout.look.foldedSections ?: emptySet(),
+                                    onToggleFold = { id ->
+                                        val folded = layout.look.foldedSections
+                                        if (folded != null) {
+                                            if (!folded.remove(id)) folded.add(id)
+                                            layout.save()
+                                            touchLayout()
+                                        }
+                                    },
                                     // The outgoing half fades without staging: two animations on the
                                     // same pixels read as a stutter, not as a move.
                                     staging = shownModule == selectedModule

@@ -571,6 +571,29 @@ public final class YuanAuroraCheck {
                     : "a name that LEADS with the query outranks one that merely contains it";
 
             // ---- and Enter takes the answer ----------------------------------------------------
+            // ---- section headings fold ---------------------------------------------------------
+            String foldSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordInlinePanel.kt"));
+            // Folded state is data, passed in, so the crossfade's outgoing copy cannot read a
+            // layout that has already moved on.
+            assert foldSrc.contains("foldedSections: Set<String>")
+                    : "the panel must receive folds as a value, not reach into the layout";
+            assert foldSrc.contains("onToggleFold: (String) -> Unit")
+                    : "the panel must report folds to its caller, which owns persistence";
+            // A search OVERRIDES the fold: asking for these rows must not be answered with a heading.
+            assert foldSrc.contains("query.isNotEmpty() || !folded")
+                    : "a search must show folded sections, or it answers with the wrong thing";
+            // The rows COLLAPSE, they do not vanish: a section that disappeared in one frame would
+            // make everything below it jump up the page.
+            assert foldSrc.contains("AnimatedVisibility(")
+                    && foldSrc.contains("shrinkVertically(")
+                    : "folding must animate the height, not cut the rows out";
+            // The heading is the target, and it states the state without counting rows.
+            assert foldSrc.contains("private fun SectionLabel(name: String, folded: Boolean, onToggle: () -> Unit)")
+                    : "the heading must be the fold control";
+            assert foldSrc.contains("rotationZ = 180f * turn")
+                    : "the marker must turn with the fold, or the triangle and the rows read as two events";
+
             assert screenSrc.contains("searchHits.getOrNull(focus.index)")
                     : "Enter must open the focused search hit";
 

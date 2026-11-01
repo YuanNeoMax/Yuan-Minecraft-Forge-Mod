@@ -1,5 +1,13 @@
 package com.yuan.client.aurora.panels
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -19,9 +27,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import com.yuan.client.aurora.anim.Motion
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -29,9 +34,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yuan.client.aurora.anim.EnterBlock
+import com.yuan.client.aurora.anim.Motion
 import com.yuan.client.aurora.anim.staggerDelay
 import com.yuan.client.aurora.icons.AuroraIcon
 import com.yuan.client.aurora.icons.IconSize
@@ -70,6 +77,16 @@ internal fun GodSwordInlinePanel(
     onPresetSave: (Int) -> Unit,
     onOpenGroup: (GodSwordModules.Group) -> Unit,
     onChanged: () -> Unit,
+    /**
+     * The sections the player has folded shut, keyed by `module/heading`.
+     *
+     * <p>Passed in rather than read from the layout: this panel is a pure function of its
+     * arguments, which is what lets the crossfade render an outgoing copy without it reaching back
+     * into state that has already moved on.
+     */
+    foldedSections: Set<String> = emptySet(),
+    /** Toggles one section's fold. The caller owns persistence. */
+    onToggleFold: (String) -> Unit = {},
     /**
      * Whether the rows play their staggered entrance.
      *
@@ -119,7 +136,9 @@ internal fun GodSwordInlinePanel(
                     fromY = 6
                 ) {
                     SectionBlock(group, holder, query, presetSlot, onPresetSlot, onPresetLoad,
-                        onPresetSave, onOpenGroup, onChanged)
+                        onPresetSave, onOpenGroup, onChanged,
+                        folded = group.id in foldedSections,
+                        onToggleFold = { onToggleFold(group.id) })
                 }
             }
         }
@@ -143,19 +162,44 @@ private fun SectionBlock(
     onPresetLoad: (Int) -> Unit,
     onPresetSave: (Int) -> Unit,
     onOpenGroup: (GodSwordModules.Group) -> Unit,
-    onChanged: () -> Unit
+    onChanged: () -> Unit,
+    /** Whether this section is folded shut. See AuroraLayout.foldedSections. */
+    folded: Boolean,
+    onToggleFold: () -> Unit
 ) {
+    // A SEARCH OVERRIDES THE FOLD. The player asked for these rows; hiding them behind a heading
+    // they had folded earlier would answer the question with "it is somewhere in here".
+    val showRows = query.isNotEmpty() || !folded
+
     if (query.isEmpty() && GodSwordModules.groupNeedsPopup(group)) {
-        SectionLabel(group.heading)
-        CollapsedSectionRow(group, onOpen = { onOpenGroup(group) })
+        SectionLabel(group.heading, folded = folded, onToggle = onToggleFold)
+        if (showRows) {
+            CollapsedSectionRow(group, onOpen = { onOpenGroup(group) })
+        }
         return
     }
-    SectionLabel(group.heading)
-    group.rows.forEach { godRow ->
-        when (godRow.row.id) {
-            "ballColor" -> BallColourRow(holder, onChanged)
-            "preset" -> PresetRow(holder, presetSlot, onPresetSlot, onPresetLoad, onPresetSave)
-            else -> GodSwordRowLine(godRow, holder, onChanged)
+
+    SectionLabel(group.heading, folded = folded, onToggle = onToggleFold)
+    // The rows collapse to zero height rather than disappearing in one frame: a section that simply
+    // vanished would make everything below it jump up the page, and the player would lose the place
+    // they were reading. Animated height keeps the movement legible.
+    AnimatedVisibility(
+        visible = showRows,
+        enter = expandVertically(
+            animationSpec = tween(Motion.dur(Motion.BASE_MS), easing = Motion.enter)
+        ) + fadeIn(tween(Motion.dur(Motion.QUICK_MS))),
+        exit = shrinkVertically(
+            animationSpec = tween(Motion.dur(Motion.BASE_MS), easing = Motion.standard)
+        ) + fadeOut(tween(Motion.dur(Motion.QUICK_MS)))
+    ) {
+        Column {
+            group.rows.forEach { godRow ->
+                when (godRow.row.id) {
+                    "ballColor" -> BallColourRow(holder, onChanged)
+                    "preset" -> PresetRow(holder, presetSlot, onPresetSlot, onPresetLoad, onPresetSave)
+                    else -> GodSwordRowLine(godRow, holder, onChanged)
+                }
+            }
         }
     }
 }
@@ -167,27 +211,78 @@ private fun SectionBlock(
  * weight as the rows under it would give twenty labels and sixty settings equal standing, and the page
  * becomes a wall.
  */
+/**
+ * A section's heading, which is also the fold control.
+ *
+ * <p>THE HEADING IS THE TARGET, not a chevron beside it. It is already the row a reader looks at
+ * when deciding whether they care about the section below, and it is the full width of the column --
+ * a small chevron would be a second thing to aim at, on a row whose meaning is unambiguous.
+ *
+ * <p>A folded heading dims its text and flips the marker, so the state is readable without counting
+ * the rows underneath. The marker is a drawn triangle rather than an icon: three lines of canvas
+ * cost less than an asset lookup for a shape this simple, and it can rotate with the animation
+ * instead of swapping glyphs.
+ */
 @Composable
-private fun SectionLabel(name: String) {
+private fun SectionLabel(name: String, folded: Boolean, onToggle: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    // The marker turns as the section folds, over the same duration the rows use, so the two read as
+    // one movement. An instantly-flipping triangle beside rows that are still collapsing would look
+    // like two separate events.
+    val turn by animateFloatAsState(
+        targetValue = if (folded) 1f else 0f,
+        animationSpec = tween(Motion.dur(Motion.QUICK_MS), easing = Motion.standard),
+        label = "foldMarker"
+    )
+
     Box(
         Modifier
             .fillMaxWidth()
             .padding(top = 12.dp, bottom = 4.dp)
+            .hoverable(interaction)
+            .handCursor()
+            .clickable(interactionSource = interaction, indication = null) { onToggle() }
     ) {
         Column(Modifier.fillMaxWidth()) {
             Box(
                 Modifier
                     .fillMaxWidth()
                     .height(1.dp)
-                    .background(Star.hairline)
+                    .background(if (hovered) Star.hairlineStrong else Star.hairline)
             )
-            Text(
-                name,
-                fontSize = TypeScale.section,
-                color = Star.textTertiary,
-                fontFamily = auroraFont,
-                modifier = Modifier.padding(top = 6.dp)
-            )
+            Row(
+                Modifier.padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier
+                        .width(8.dp)
+                        .height(8.dp)
+                        .graphicsLayer { rotationZ = 180f * turn },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(Modifier.size(8.dp)) {
+                        val w = size.width
+                        val h = size.height
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(w * 0.15f, h * 0.30f)
+                            lineTo(w * 0.85f, h * 0.30f)
+                            lineTo(w * 0.50f, h * 0.78f)
+                            close()
+                        }
+                        drawPath(path, if (folded) Star.textTertiary else Star.textDisabled)
+                    }
+                }
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    name,
+                    fontSize = TypeScale.section,
+                    // A folded heading is dimmer, not hidden: it still says what is down there.
+                    color = if (folded) Star.textTertiary else Star.textSecondary,
+                    fontFamily = auroraFont
+                )
+            }
         }
     }
 }

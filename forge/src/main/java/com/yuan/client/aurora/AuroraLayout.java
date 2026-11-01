@@ -654,6 +654,20 @@ public final class AuroraLayout {
     public int accentColor = 0;
 
     /**
+     * The section headings the player has folded shut, keyed by `module/heading`.
+     *
+     * <p>FOLDED, not hidden: the heading and its rule stay, the rows underneath collapse to nothing.
+     * A page like 时停 is seven sections and twenty-seven settings, and reaching the sixth section
+     * means scrolling past five the player has already decided about. Folding is how a long page
+     * becomes short again without a second navigation level.
+     *
+     * <p>Stored by the same `module/heading` key the panels use, so a fold survives a module switch
+     * and a restart -- it is a reading preference, and re-folding the same sections on every open
+     * would be a chore rather than a setting.
+     */
+    public java.util.Set<String> foldedSections = new java.util.LinkedHashSet<>();
+
+    /**
      * Where each floating panel sits on screen, in ROOT-space pixels.
      *
      * <p>PUBLISHED BY THE COMPOSITION, READ BY THE RENDERER. The glass pass needs a panel's rectangle
