@@ -105,7 +105,7 @@ public class YuanKeyBindings {
             }
             if (mc.screen == null && domainClicks > 0) {
                 if (hasGodSwordInHand(mc.player)) {
-                    Yuan.CHANNEL.sendToServer(new YuanDomainRequestPacket());
+                    Yuan.CHANNEL.sendToServer(new YuanDomainRequestPacket(false));
                 } else {
                     mc.player.displayClientMessage(Component.literal("§c✦ 展开领域需手持神剑"), true);
                 }

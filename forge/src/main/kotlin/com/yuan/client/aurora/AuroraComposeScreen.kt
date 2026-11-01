@@ -107,6 +107,18 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
     protected var swordStack: ItemStack = ItemStack.EMPTY
 
     /**
+     * When the domain appearance was last published, and what it was.
+     *
+     * <p>Preview runs on EVERY edit, and a density slider fires per pixel -- a refresh packet
+     * per pixel would put hundreds of broadcasts on the wire for one drag. Published at most
+     * once per window, and only when the value actually changed.
+     */
+    private var lastDomainPublishAt = 0L
+    private var lastPublishedDensity = Float.NaN
+    private var lastPublishedSpin = Float.NaN
+    private var lastPublishedSpikes = false
+
+    /**
      * Consulted on ESC before the screen closes; true means the key was consumed.
      *
      * <p>A hook rather than handling in the subclass's `keyPressed`, because the subclass does not own
@@ -437,6 +449,30 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
         if (swordStack.isEmpty) return
         config.write(swordStack)
         editingConfig.copyFrom(config)
+        // The domain appearance lives on the wire, so a tweak has to be published or
+        // other clients keep drawing the sky as it was when the domain was expanded.
+        publishDomainAppearanceIfChanged(config)
+    }
+
+    /**
+     * Sends a domain refresh when the appearance changed and the debounce has elapsed.
+     *
+     * <p>Three guards, each load-bearing: no change means a drag that returns to where it
+     * started publishes nothing; the window means a drag publishes a handful of packets
+     * instead of one per pixel; and the server ignores the packet when the domain is closed.
+     */
+    private fun publishDomainAppearanceIfChanged(config: com.yuan.item.YuanGodSwordConfig) {
+        val now = System.currentTimeMillis()
+        val changed = config.domainStarDensity != lastPublishedDensity
+                || config.domainSpinScale != lastPublishedSpin
+                || config.domainStarSpikes != lastPublishedSpikes
+        if (!changed) return
+        if (now - lastDomainPublishAt < DOMAIN_PUBLISH_INTERVAL_MS) return
+        lastDomainPublishAt = now
+        lastPublishedDensity = config.domainStarDensity
+        lastPublishedSpin = config.domainSpinScale
+        lastPublishedSpikes = config.domainStarSpikes
+        com.yuan.Yuan.CHANNEL.sendToServer(com.yuan.domain.YuanDomainRequestPacket(true))
     }
 
     /**
@@ -946,6 +982,9 @@ abstract class AuroraComposeScreen(title: String) : Screen(Component.literal(tit
         }
     }
 }
+
+/** How often at most the domain appearance may be published while a slider moves. */
+private const val DOMAIN_PUBLISH_INTERVAL_MS = 120L
 
 /** How far the image is displaced at a panel's rim, in pixels, at full glass strength.
  *
