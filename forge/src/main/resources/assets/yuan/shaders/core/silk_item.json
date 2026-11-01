@@ -1,47 +1,258 @@
 {
-    "blend": {
-        "func": "add",
-        "srcrgb": "srcalpha",
-        "dstrgb": "1-srcalpha"
+  "blend": {
+    "func": "add",
+    "srcrgb": "srcalpha",
+    "dstrgb": "1-srcalpha"
+  },
+  "vertex": "yuan:silk_item",
+  "fragment": "yuan:silk_item",
+  "attributes": [
+    "Position",
+    "Color",
+    "UV0",
+    "UV2"
+  ],
+  "samplers": [],
+  "uniforms": [
+    {
+      "name": "ModelViewMat",
+      "type": "matrix4x4",
+      "count": 16,
+      "values": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
     },
-    "vertex": "yuan:silk_item",
-    "fragment": "yuan:silk_item",
-    "attributes": [
-        "Position",
-        "Color",
-        "UV0",
-        "UV2"
-    ],
-    "samplers": [],
-    "uniforms": [
-        { "name": "ModelViewMat", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
-        { "name": "ProjMat", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
-        { "name": "ColorModulator", "type": "float", "count": 4, "values": [ 1.0, 1.0, 1.0, 1.0 ] },
-        { "name": "Time", "type": "float", "count": 1, "values": [ 0.0 ] },
-        { "name": "SilkColor0", "type": "float", "count": 4, "values": [ 0.102, 0.078, 0.137, 1.0 ] },
-        { "name": "SilkColor1", "type": "float", "count": 4, "values": [ 0.718, 0.365, 0.412, 1.0 ] },
-        { "name": "SilkColor2", "type": "float", "count": 4, "values": [ 0.918, 0.804, 0.761, 1.0 ] },
-        { "name": "SilkColor3", "type": "float", "count": 4, "values": [ 1.0, 0.961, 0.922, 1.0 ] },
-        { "name": "SilkColor4", "type": "float", "count": 4, "values": [ 1.0, 0.961, 0.922, 1.0 ] },
-        { "name": "SilkColor5", "type": "float", "count": 4, "values": [ 1.0, 0.961, 0.922, 1.0 ] },
-        { "name": "SilkColor6", "type": "float", "count": 4, "values": [ 1.0, 0.961, 0.922, 1.0 ] },
-        { "name": "SilkColor7", "type": "float", "count": 4, "values": [ 1.0, 0.961, 0.922, 1.0 ] },
-        { "name": "SilkBrightness", "type": "float", "count": 1, "values": [ 0.03 ] },
-        { "name": "SilkContrast", "type": "float", "count": 1, "values": [ 1.19 ] },
-        { "name": "SilkSaturation", "type": "float", "count": 1, "values": [ 1.34 ] },
-        { "name": "SilkScale", "type": "float", "count": 1, "values": [ 1.74 ] },
-        { "name": "SilkIntensity", "type": "float", "count": 1, "values": [ 0.69 ] },
-        { "name": "SilkWarp", "type": "float", "count": 1, "values": [ 0.07 ] },
-        { "name": "SilkDetail", "type": "float", "count": 1, "values": [ 2.66 ] },
-        { "name": "SilkHue", "type": "float", "count": 1, "values": [ 5.74 ] },
-        { "name": "SilkSeed", "type": "float", "count": 1, "values": [ 9199.0 ] },
-        { "name": "SilkRotation", "type": "float", "count": 1, "values": [ 5.06 ] },
-        { "name": "SilkDrift", "type": "float", "count": 1, "values": [ 0.02 ] },
-        { "name": "SilkVignette", "type": "float", "count": 1, "values": [ 0.12 ] },
-        { "name": "SilkBlur", "type": "float", "count": 1, "values": [ 0.004 ] },
-        { "name": "SilkGrain", "type": "float", "count": 1, "values": [ 0.0 ] },
-        { "name": "SpriteBounds", "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 1.0 ] },
-        { "name": "ViewYaw", "type": "float", "count": 1, "values": [ 0.0 ] },
-        { "name": "ViewPitch", "type": "float", "count": 1, "values": [ 0.0 ] }
-    ]
+    {
+      "name": "ProjMat",
+      "type": "matrix4x4",
+      "count": 16,
+      "values": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "ColorModulator",
+      "type": "float",
+      "count": 4,
+      "values": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "name": "Time",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.0
+      ]
+    },
+    {
+      "name": "SilkColor0",
+      "type": "float",
+      "count": 4,
+      "values": [
+        0.102,
+        0.078,
+        0.137,
+        1.0
+      ]
+    },
+    {
+      "name": "SilkColor1",
+      "type": "float",
+      "count": 4,
+      "values": [
+        0.718,
+        0.365,
+        0.412,
+        1.0
+      ]
+    },
+    {
+      "name": "SilkColor2",
+      "type": "float",
+      "count": 4,
+      "values": [
+        0.918,
+        0.804,
+        0.761,
+        1.0
+      ]
+    },
+    {
+      "name": "SilkColor3",
+      "type": "float",
+      "count": 4,
+      "values": [
+        1.0,
+        0.961,
+        0.922,
+        1.0
+      ]
+    },
+    {
+      "name": "SilkBrightness",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.03
+      ]
+    },
+    {
+      "name": "SilkContrast",
+      "type": "float",
+      "count": 1,
+      "values": [
+        1.19
+      ]
+    },
+    {
+      "name": "SilkSaturation",
+      "type": "float",
+      "count": 1,
+      "values": [
+        1.34
+      ]
+    },
+    {
+      "name": "SilkScale",
+      "type": "float",
+      "count": 1,
+      "values": [
+        1.74
+      ]
+    },
+    {
+      "name": "SilkIntensity",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.69
+      ]
+    },
+    {
+      "name": "SilkWarp",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.07
+      ]
+    },
+    {
+      "name": "SilkDetail",
+      "type": "float",
+      "count": 1,
+      "values": [
+        2.66
+      ]
+    },
+    {
+      "name": "SilkHue",
+      "type": "float",
+      "count": 1,
+      "values": [
+        5.74
+      ]
+    },
+    {
+      "name": "SilkSeed",
+      "type": "float",
+      "count": 1,
+      "values": [
+        9199.0
+      ]
+    },
+    {
+      "name": "SilkRotation",
+      "type": "float",
+      "count": 1,
+      "values": [
+        5.06
+      ]
+    },
+    {
+      "name": "SilkDrift",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.02
+      ]
+    },
+    {
+      "name": "SilkVignette",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.12
+      ]
+    },
+    {
+      "name": "SilkGrain",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.0
+      ]
+    },
+    {
+      "name": "SpriteBounds",
+      "type": "float",
+      "count": 4,
+      "values": [
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "name": "ViewYaw",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.0
+      ]
+    },
+    {
+      "name": "ViewPitch",
+      "type": "float",
+      "count": 1,
+      "values": [
+        0.0
+      ]
+    }
+  ]
 }

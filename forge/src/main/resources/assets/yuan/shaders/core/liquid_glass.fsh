@@ -1,6 +1,5 @@
 #version 150
 
-uniform sampler2D SceneTex;
 uniform sampler2D BlurTex;
 uniform vec2 guiSize;
 uniform vec2 framebufferSize;

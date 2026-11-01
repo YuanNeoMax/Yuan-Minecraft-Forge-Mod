@@ -101,8 +101,17 @@ public final class YuanRenderCheck {
         assert tooltip.contains("ClientPlayerNetworkEvent.LoggingOut")
                 && tooltip.contains("liquidGlassRenderer.close()")
                 : "liquid glass render targets are not released on logout";
-        assert liquidConfig.contains("\"SceneTex\"") && liquidConfig.contains("\"BlurTex\"")
-                : "liquid glass optical samplers are incomplete";
+        // BLURTEX IS THE ONE THE SHADER SAMPLES. `SceneTex` used to be declared beside it and never
+        // read -- GLSL 150 then dropped it, the json declaration could never bind, and every launch
+        // logged "could not find sampler named SceneTex". The refraction reads the blurred scene,
+        // which is the design; the sharp texture was a leftover from an earlier approach. Asserting
+        // exactly what the shader samples keeps this honest: the declaration and the sampling agree.
+        assert liquidConfig.contains("\"BlurTex\"")
+                : "liquid glass must declare the sampler its refraction actually reads";
+        assert !liquidConfig.contains("\"SceneTex\"")
+                : "a sampler that is declared and never sampled logs a binding warning on every launch";
+        assert liquidFragment.contains("texture(BlurTex, ")
+                : "the refraction must actually read the blurred scene";
         assert liquidFragment.contains("sdgBox") && liquidFragment.contains("refThickness")
                 && liquidFragment.contains("refDisp") && liquidFragment.contains("glareRange")
                 : "ReGlass rounded-rectangle optical model is incomplete";
@@ -197,6 +206,68 @@ public final class YuanRenderCheck {
             }
         }
 
+        // ---- NO UNIFORM MAY BE DECLARED AND LEFT UNREAD, IN ANY SHADER --------------------------
+        //
+        // GLSL 150 DROPS a uniform that is declared but never read. The json declaration then can
+        // never bind, and the game logs "could not find uniform named X" for every one of them at
+        // load time. The build says nothing: the json is valid and the shader compiles, so the only
+        // witness is a warning in a log nobody reads after a successful launch.
+        //
+        // Eight such warnings were found in a real run of this mod, across four shaders. All eight
+        // were dead declarations, so the damage was log noise rather than a broken pass -- but the
+        // same pattern IS how a working uniform silently stops working, which is why it is checked
+        // everywhere now instead of only in the one shader that was being edited.
+        //
+        // The directory is walked rather than a hand-written list, so a shader added later is
+        // covered without anyone remembering to add it here.
+        {
+            Path shaderDir = Path.of("src/main/resources/assets/yuan/shaders/core");
+            java.util.List<String> offenders = new java.util.ArrayList<>();
+            if (Files.isDirectory(shaderDir)) {
+                try (var stream = Files.list(shaderDir)) {
+                    for (Path fsh : stream.filter(p -> p.toString().endsWith(".fsh"))
+                            .sorted().toList()) {
+                        String text = stripComments(Files.readString(fsh));
+                        java.util.regex.Matcher m = java.util.regex.Pattern
+                                .compile("uniform\\s+\\w+\\s+(\\w+)\\s*;").matcher(text);
+                        while (m.find()) {
+                            String name = m.group(1);
+                            String withoutDecl = text.replaceFirst(
+                                    "uniform\\s+\\w+\\s+" + name + "\\s*;", "");
+                            if (!java.util.regex.Pattern.compile("\\b" + name + "\\b")
+                                    .matcher(withoutDecl).find()) {
+                                offenders.add(fsh.getFileName() + ":" + name);
+                            }
+                        }
+                    }
+                }
+            }
+            assert offenders.isEmpty()
+                    : "these uniforms are declared but never read, so GLSL 150 drops them and the "
+                    + "game logs a binding warning for each: " + String.join(", ", offenders);
+        }
+    }
+
+    /** Strips // and /* ... *\/ so a uniform named inside a comment is not counted as a read. */
+    private static String stripComments(String text) {
+        StringBuilder out = new StringBuilder();
+        int i = 0;
+        int n = text.length();
+        while (i < n) {
+            if (text.startsWith("/*", i)) {
+                int j = text.indexOf("*/", i + 2);
+                i = j < 0 ? n : j + 2;
+                continue;
+            }
+            if (text.startsWith("//", i)) {
+                int j = text.indexOf('\n', i);
+                i = j < 0 ? n : j;
+                continue;
+            }
+            out.append(text.charAt(i));
+            i++;
+        }
+        return out.toString();
     }
 
     private static String read(String path) throws Exception {

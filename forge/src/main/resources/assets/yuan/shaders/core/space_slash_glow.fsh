@@ -1,8 +1,6 @@
 #version 150
 
-uniform float Time;
 uniform float Progress;
-uniform float Seed;
 uniform vec4 GlowColor;
 uniform float GlowStrength;
 uniform float EdgeBrightness;
