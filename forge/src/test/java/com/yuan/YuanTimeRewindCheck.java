@@ -189,6 +189,29 @@ public final class YuanTimeRewindCheck {
                     : "one config read must answer both \"does it count\" and \"what window\"";
         }
 
+        // ---- an interrupted playback must FINISH, not abandon ---------------------------
+        // Items are deducted BEFORE playback begins, precisely because the rewind may not be able
+        // to complete. A batch that throws halfway used to just clear the pending restore and
+        // release the lock -- blocks partly reverted, entities not snapped, the player's own state
+        // not restored, and the deduction now a permanent theft with nothing to show for it.
+        {
+            String evSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindEvents.java"));
+            int catchAt = evSrc.indexOf("playback batch failed, attempting to finish");
+            assert catchAt > 0
+                    : "an interrupted playback must attempt to finish the restore";
+            String after = evSrc.substring(catchAt);
+            assert after.contains("applyProgressiveBatch(pending, true)")
+                    : "the recovery must run the remaining batches, not drop them";
+            assert after.contains("finishProgressive(pending)")
+                    : "the recovery must finalise entities, entities-removal and world state";
+            // finishProgressive is NOT idempotent -- it re-applies entity snapshots and discards
+            // created entities -- so it may only run on the one path that reached the end.
+            assert after.indexOf("finishProgressive(pending)")
+                    < after.indexOf("clearPendingPlayback()")
+                    : "finalise before clearing: a cleared pending is not finalisable";
+        }
+
         assert rewindEvents.contains("shouldAttemptDeathRewind") : "death retry cap helper missing";
         assert rewindEvents.contains("shouldAttemptDeathRewind(retry")
                 : "death retry cap must be enforced";
@@ -807,7 +830,7 @@ public final class YuanTimeRewindCheck {
                 : "a missing container must not be read as emptied when computing deltas";
         assert !rewindEvents.contains("throw e")
                 : "a failed playback must be logged and cleaned up, not rethrown into the tick loop";
-        assert rewindEvents.contains("playback failed, partial restore left applied")
+        assert rewindEvents.contains("playback batch failed, attempting to finish")
                 : "a failed playback has to report what it left half applied";
         assert rewindRestorer.contains("YuanTimeRewindEvents.clearPendingPlayback()")
                 : "an aborted restore start must drop the pending playback it already published";

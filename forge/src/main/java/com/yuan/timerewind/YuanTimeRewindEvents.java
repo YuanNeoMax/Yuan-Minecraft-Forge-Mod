@@ -343,16 +343,41 @@ Component.literal("\u00a7c[\u56de\u6eaf] \u81ea\u6551\u5931\u8d25\uff0c\u8bf7\u4
                 clearPendingPlayback();
             }
         } catch (RuntimeException e) {
+            // A BATCH THREW MIDWAY, which leaves the world in the worst state there is: blocks
+            // partly reverted, entities not yet snapped, the player's own state not yet restored --
+            // AND the items deducted before playback began already gone. Items are taken up front
+            // (restore()'s deductOtherPlayerItems) precisely because the rewind may not be able to
+            // complete; abandoning the restore here would make that deduction a permanent theft.
+            //
+            // So the remaining work is attempted ONCE more, all at once. If it lands, the world and
+            // the player are whole and the deduction is accounted for. If it also throws, nothing
+            // safer is left to try: the state is released and the message says what happened rather
+            // than leaving a silent half-rewind on screen.
+            LOGGER.warn("[YuanTimeRewind] playback batch failed, attempting to finish", e);
+            boolean recovered = false;
+            try {
+                recovered = YuanTimeRewindRestorer.applyProgressiveBatch(pending, true);
+                if (recovered) {
+                    YuanTimeRewindRestorer.finishProgressive(pending);
+                }
+            } catch (RuntimeException second) {
+                LOGGER.warn("[YuanTimeRewind] could not finish the interrupted restore", second);
+            }
             clearPendingPlayback();
             YuanTimeRewindServerState.clearPlayback();
             YuanTimeRewindServerState.endPlayback();
             YuanTimeRewindServerState.release();
-            // Rethrowing here took the whole server down with the world left half reverted; the
-            // playback state is already cleaned, so report it and keep running.
-            LOGGER.warn("[YuanTimeRewind] playback failed, partial restore left applied", e);
+            // Playback state is cleaned either way, so the server keeps running rather than
+            // rethrowing; only the message differs.
             if (pending.player != null && !pending.player.isRemoved()) {
                 pending.player.displayClientMessage(
-                        Component.literal("§c[回溯] 播放中断，已保留部分还原"), true);
+                        Component.literal(recovered
+                                ? "\u00a7e[\u56de\u6eaf] \u64ad\u653e\u4e2d\u65ad\uff0c\u5df2\u76f4\u63a5\u5b8c\u6210\u8fd8\u539f"
+                                : "\u00a7c[\u56de\u6eaf] \u64ad\u653e\u4e2d\u65ad\uff0c\u90e8\u5206\u8fd8\u539f\u65e0\u6cd5\u5b8c\u6210"),
+                        true);
+            }
+            if (recovered) {
+                serveQueuedRescue();
             }
         }
     }
