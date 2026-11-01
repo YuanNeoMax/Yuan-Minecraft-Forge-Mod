@@ -40,6 +40,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -320,7 +321,17 @@ internal fun AuroraSlider(
     onValueChange: (Float) -> Unit,
     format: (Float) -> String,
     width: Dp = 92.dp,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    /**
+     * The value a double-click returns to, or null when the row has no meaningful default.
+     *
+     * <p>Resetting one row is already reachable by right-clicking it (see GodSwordBinding.resetRow),
+     * but a double-click on the slider is the gesture a player tries FIRST on a control they have
+     * just dragged somewhere wrong -- it costs nothing to honour it, and it saves aiming at the
+     * label. Null keeps the double-click inert, so a control with no default does not pretend to
+     * have one.
+     */
+    default: Float? = null
 ) {
     val span = (range.endInclusive - range.start).takeIf { it > 0f } ?: 1f
     val fraction = ((value - range.start) / span).coerceIn(0f, 1f)
@@ -343,7 +354,18 @@ internal fun AuroraSlider(
             Modifier
                 .width(width)
                 .height(24.dp)
-                .pointerInput(enabled, range.start, span, step) {
+                // THREE WAYS TO SET ONE VALUE, and they share this one pointerInput.
+                //
+                // The drag is the obvious one. The WHEEL is the precise one: on a 0..100 row a
+                // dragged pixel is worth several units, so nudging a value by one is practically
+                // impossible with the pointer alone -- and a player who wants 37 rather than 35
+                // should not have to overshoot deliberately. The DOUBLE-CLICK is the forgiving one:
+                // it takes a row back to its default without aiming at anything.
+                //
+                // One handler rather than two chained modifiers: two `pointerInput` blocks on one
+                // node is the consume-order trap this file has paid for before -- whichever runs
+                // first owns the stream and the other sees consumed events and never starts.
+                .pointerInput(enabled, range.start, span, step, default) {
                     if (!enabled) return@pointerInput
                     fun emit(x: Float) {
                         val f = (x / size.width).coerceIn(0f, 1f)
@@ -351,12 +373,52 @@ internal fun AuroraSlider(
                         val next = if (step > 0f) Math.round(raw / step) * step else raw
                         onValueChange(next)
                     }
-                    detectHorizontalDragGestures(
-                        onDragStart = {
-                            emit(it.x)
+                    fun nudge(direction: Int) {
+                        // One step per notch, or a twentieth of the range when the step is coarse
+                        // enough that a single notch would be imperceptible.
+                        val delta = if (step > 0f) step else span / 20f
+                        val next = (value + delta * direction)
+                            .coerceIn(range.start, range.endInclusive)
+                        onValueChange(if (step > 0f) Math.round(next / step) * step else next)
+                    }
+                    awaitPointerEventScope {
+                        var lastTapAt = 0L
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: continue
+                            when (event.type) {
+                                PointerEventType.Scroll -> {
+                                    val dy = change.scrollDelta.y
+                                    if (dy != 0f) {
+                                        // Wheel UP increases: scrollDelta is positive when the
+                                        // content scrolls down, which is the opposite direction.
+                                        nudge(if (dy < 0f) 1 else -1)
+                                        change.consume()
+                                    }
+                                }
+                                PointerEventType.Press -> {
+                                    val now = System.nanoTime()
+                                    val isDouble = now - lastTapAt < 400_000_000L
+                                    lastTapAt = now
+                                    if (isDouble && default != null) {
+                                        onValueChange(default)
+                                        change.consume()
+                                        // Consumed so the pair does not also start a drag that
+                                        // would immediately overwrite the reset.
+                                        continue
+                                    }
+                                    emit(change.position.x)
+                                    // The drag loop runs from here, as before: a press already
+                                    // means "jump to this position", which is what makes the whole
+                                    //  24px band feel like the track.
+                                }
+                                PointerEventType.Move -> if (change.pressed) {
+                                    emit(change.position.x)
+                                    change.consume()
+                                }
+                                else -> Unit
+                            }
                         }
-                    ) { change, _ ->
-                        emit(change.position.x)
                     }
                 },
             contentAlignment = Alignment.Center

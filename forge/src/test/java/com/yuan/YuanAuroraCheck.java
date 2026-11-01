@@ -545,6 +545,35 @@ public final class YuanAuroraCheck {
             //
             // The read is in composition because the CONDITION depends on it, which is the price of
             // correct repainting; the layer itself is absent whenever the ramp has settled.
+            // ---- three ways to set one slider value ---------------------------------------------
+            String ctlSrc = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/scaffold/AuroraControls.kt"));
+            assert ctlSrc.contains("default: Float? = null")
+                    : "a slider needs to know its default before it can offer a reset";
+            // ONE pointerInput carries all three gestures. Two chained pointerInput blocks on one
+            // node is the consume-order trap this file has paid for before: whichever runs first
+            // owns the stream and the other never starts.
+            assert ctlSrc.contains("PointerEventType.Scroll")
+                    : "the wheel must nudge the slider, or a precise value is unreachable by pointer";
+            assert ctlSrc.contains("400_000_000L")
+                    : "a double-click must be distinguishable from two presses";
+
+            // ---- search results are ranked -----------------------------------------------------
+            String modSrc2 = Files.readString(Path.of(
+                    "src/main/kotlin/com/yuan/client/aurora/panels/GodSwordModules.kt"));
+            assert modSrc2.contains("matchRank")
+                    : "a search must rank its hits, or the best answer looks like all the others";
+            assert modSrc2.contains("compareByDescending<SearchHit> { it.rank }")
+                    : "the best match must come first";
+            assert modSrc2.contains(".thenBy { it.rowName }")
+                    : "equal-quality hits need one stable order, or the list reorders while typing";
+            assert modSrc2.contains("n.startsWith(q)")
+                    : "a name that LEADS with the query outranks one that merely contains it";
+
+            // ---- and Enter takes the answer ----------------------------------------------------
+            assert screenSrc.contains("searchHits.getOrNull(focus.index)")
+                    : "Enter must open the focused search hit";
+
             assert screenSrc.contains("val appearNow = windowAppear.value")
                     : "the window ramp must be read where the conditional layer can see it";
             assert screenSrc.contains("val fading = appearNow < 0.999f")

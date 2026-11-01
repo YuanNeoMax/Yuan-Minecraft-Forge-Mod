@@ -123,7 +123,9 @@ internal object GodSwordModules {
         val moduleLabel: String,
         val groupHeading: String,
         val rowId: String,
-        val rowName: String
+        val rowName: String,
+        /** Match quality, 0..3; see matchRank. Carried on the hit so the UI could show it. */
+        val rank: Int = 0
     )
 
     /**
@@ -146,19 +148,54 @@ internal object GodSwordModules {
         for (module in MODULES) {
             for (group in groupsOf(module, rowsOfModule(module))) {
                 for (godRow in group.rows) {
-                    if (godRow.row.name.contains(needle, true)) {
+                    val name = godRow.row.name
+                    if (name.contains(needle, true)) {
                         hits += SearchHit(
                             moduleId = module.id,
                             moduleLabel = module.label,
                             groupHeading = group.heading,
                             rowId = godRow.row.id,
-                            rowName = godRow.row.name
+                            rowName = name,
+                            // QUALITY, not just membership. A search that returns every containing
+                            // row in declaration order makes the best answer look like all the
+                            // others: typing "冷却" in a feature with eight rows mentioning cold
+                            // down buries the one actually NAMED 冷却时间 halfway down the list.
+                            //
+                            // The tiers, and why each is ordered where it is:
+                            //   3  the name IS the query -- there is nothing else it could mean
+                            //   2  the name starts with it -- a compound that leads with the word
+                            //   1  the query starts with the name -- a shorter name the player
+                            //      qualified ("时停" typed as "时停无敌")
+                            //   0  it merely contains it
+                            // Case is folded on both sides: a player typing "灰色" should not rank
+                            // below one who typed "Gray".
+                            rank = matchRank(name, needle)
                         )
                     }
                 }
             }
         }
-        return hits
+        // Best first, then by name so equal-quality hits keep one stable order the whole time the
+        // player is typing -- a list that reorders under the pointer is the one thing that makes
+        // results unusable. `sortedByDescending` is stable in Kotlin, so the group order survives.
+        return hits.sortedWith(
+            compareByDescending<SearchHit> { it.rank }.thenBy { it.rowName }
+        )
+    }
+
+    /**
+     * How well [name] answers [query]: 3 exact, 2 prefix, 1 the query qualifies a shorter name, 0 bare
+     * containment. See the note at the call site for why these tiers exist.
+     */
+    private fun matchRank(name: String, needle: String): Int {
+        val n = name.lowercase()
+        val q = needle.lowercase()
+        return when {
+            n == q -> 3
+            n.startsWith(q) -> 2
+            q.startsWith(n) -> 1
+            else -> 0
+        }
     }
 
     /**

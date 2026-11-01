@@ -389,11 +389,31 @@ class AuroraGodSwordScreen(stack: ItemStack) : AuroraComposeScreen("星渊 · �
                 // exactly what a left click does -- the two paths call the same write, so they
                 // cannot drift apart.
                 AuroraKeys.isActivate(keyCode) -> {
-                    if (focus.region == FocusRegion.Rail) {
-                        railEntryIds.getOrNull(focus.index)?.let { id ->
-                            selectedModule = id
-                            touchLayout()
+                    when (focus.region) {
+                        FocusRegion.Rail -> {
+                            railEntryIds.getOrNull(focus.index)?.let { id ->
+                                selectedModule = id
+                                touchLayout()
+                            }
                         }
+                        // A SEARCH RESULT LIST IS AN ANSWER, SO ENTER TAKES IT.
+                        //
+                        // Typing a query and then having to reach for the mouse to open the one hit
+                        // you were looking for is the opposite of what a search box is for -- the
+                        // player's hands are already on the keyboard. Enter opens the focused hit
+                        // (index 0 by default, so the common case needs no arrow keys at all) and
+                        // clears the query, since the destination is now on screen.
+                        FocusRegion.Content -> {
+                            if (query.isNotBlank()) {
+                                searchHits.getOrNull(focus.index)?.let { hit ->
+                                    selectedModule = hit.moduleId
+                                    query = ""
+                                    focus.index = 0
+                                    touchLayout()
+                                }
+                            }
+                        }
+                        else -> Unit
                     }
                     true
                 }
