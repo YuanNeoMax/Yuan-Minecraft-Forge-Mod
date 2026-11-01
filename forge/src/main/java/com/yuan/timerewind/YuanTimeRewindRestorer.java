@@ -145,8 +145,25 @@ public final class YuanTimeRewindRestorer {
                 if (recorder == null) continue;
                 long targetTick = level.getGameTime() - config.rewindWindowSeconds * 20L;
                 if (death) {
-                    targetTick = level.getGameTime()
-                            - config.rewindWindowSeconds * 20L * Math.max(1, retry);
+                    long windowTicks = config.rewindWindowSeconds * 20L;
+                    long requested = level.getGameTime() - windowTicks * Math.max(1, retry);
+                    // A RETRY ASKS FOR ONE MORE WINDOW BACK, which is more history than the
+                    // recorder keeps -- its retention is one window plus a small baseline margin.
+                    // Without a cap the request lands before everything retained and used to
+                    // DEGRADE SILENTLY: the fallback returned the entire history oldest-first and
+                    // the rewind restored to the earliest snapshot it had, not to "two windows ago".
+                    // With rewindDeathMaxRetries at its default of 0 (unlimited), a player dying
+                    // repeatedly inside one window went back to the SAME oldest snapshot every
+                    // time -- the retry appeared to do nothing, forever.
+                    //
+                    // The cap makes the degradation VISIBLE and BOUNDED: never earlier than what is
+                    // retained, and the effective rollback is clamped to it. What the player gets is
+                    // "as far back as the sword can see", which is the honest answer.
+                    long earliest = recorder.history().earliestTick();
+                    if (earliest != Long.MAX_VALUE && requested < earliest) {
+                        requested = earliest;
+                    }
+                    targetTick = requested;
                 }
                 if (death && config.rewindSafetyCheckpoint && level == triggerLevel) {
                     targetTick = findSafeTick(recorder, level, targetTick, config, player);

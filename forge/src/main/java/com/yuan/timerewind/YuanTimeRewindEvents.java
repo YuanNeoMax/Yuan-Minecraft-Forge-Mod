@@ -22,6 +22,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -415,6 +416,24 @@ Component.literal("\u00a7c[\u56de\u6eaf] \u81ea\u6551\u5931\u8d25\uff0c\u8bf7\u4
             if (recovered) {
                 serveQueuedRescue();
             }
+        }
+    }
+
+    /**
+     * Forgets a player's rewind bookkeeping when they leave.
+     *
+     * <p>See {@link YuanTimeRewindServerState#forgetPlayer}: the maps used to be cleared only when
+     * the server stopped, so a relogin inherited an invisible retry count and cooldown.
+     *
+     * <p>Deliberately does NOT touch a playback in progress: the rewind lock and the pending restore
+     * are a property of the world being rewritten, not of the player who started it, and dropping
+     * them here would leave every dimension half-restored. If the trigger disconnects mid-playback
+     * the playback finishes on its own -- see processPendingPlayback.
+     */
+    @SubscribeEvent
+    public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            YuanTimeRewindServerState.forgetPlayer(player.getUUID());
         }
     }
 

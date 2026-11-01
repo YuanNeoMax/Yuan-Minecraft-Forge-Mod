@@ -178,6 +178,26 @@ public final class YuanTimeRewindServerState {
         }
     }
 
+    /**
+     * Drops everything this class remembers about one player who has left.
+     *
+     * <p>All three maps were cleared only in {@link #resetAll}, i.e. when the SERVER stopped. On a
+     * long-running server every UUID that ever died or rewound therefore kept its cooldown deadline
+     * and its retry count for the life of the process -- a session-length leak, small per entry but
+     * unbounded across a day of play, and a correctness problem too: a player who logs out and back
+     * in inherits a retry count and a cooldown they earned before they left, which is not a thing
+     * they can see, explain, or clear.
+     *
+     * <p>Called from the logout event rather than from a periodic sweep: a player's state belongs to
+     * their session, and the moment their session ends is the moment to forget it.
+     */
+    public static void forgetPlayer(UUID playerUuid) {
+        if (playerUuid == null) return;
+        COOLDOWN_MANUAL.remove(playerUuid);
+        COOLDOWN_DEATH.remove(playerUuid);
+        DEATH_RETRIES.remove(playerUuid);
+    }
+
     public static void resetAll() {
         COOLDOWN_MANUAL.clear();
         COOLDOWN_DEATH.clear();

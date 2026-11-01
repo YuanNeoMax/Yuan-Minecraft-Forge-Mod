@@ -295,6 +295,54 @@ public final class YuanTimeRewindCheck {
                     : "the deadline must slide rather than the catch-up stalling";
         }
 
+        // ---- a relogin must not inherit invisible bookkeeping ------------------------
+        // The cooldown and the retry count were cleared only when the SERVER stopped, so on a
+        // long-running server every UUID that ever died kept its deadline and its count for the
+        // life of the process -- a session-length leak, and a correctness problem: a player who
+        // logs out and back in inherits a retry count they cannot see, explain or clear.
+        {
+            String stSrc = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindServerState.java"));
+            assert stSrc.contains("public static void forgetPlayer(UUID playerUuid)")
+                    : "a player's bookkeeping must be forgettable";
+            assert stSrc.contains("DEATH_RETRIES.remove(playerUuid)")
+                    : "forgetting must actually remove the retry count";
+            String evSrc3 = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindEvents.java"));
+            assert evSrc3.contains("onPlayerLoggedOut")
+                    : "the logout event must be the moment the forgetting happens";
+            // NOT the playback: the lock and the pending restore belong to the world being
+            // rewritten, not to the player who started it. Dropping them on logout would leave
+            // every dimension half-restored.
+            // Scoped to the HANDLER'S OWN BODY. Comparing against the first clearPlayback() in the
+            // file proves nothing: that call lives in the cancel path, hundreds of lines earlier.
+            {
+                int at = evSrc3.indexOf("onPlayerLoggedOut");
+                int body = evSrc3.indexOf("{", at);
+                int end = evSrc3.indexOf("\n    }", body);
+                String handler = body >= 0 && end > body ? evSrc3.substring(body, end) : "";
+                assert !handler.contains("clearPlayback()")
+                        && !handler.contains("clearPendingPlayback()")
+                        : "logout must not abandon a playback in progress: the lock and the pending "
+                        + "restore belong to the world being rewritten, not to the player who started it";
+            }
+        }
+
+        // ---- a retry cannot ask for history that is not kept ------------------------
+        // A retry asks for one more window back, but retention is one window plus a small margin.
+        // Uncapped, the request landed before everything retained and degraded SILENTLY: the
+        // fallback returned the whole history and the rewind restored to the earliest snapshot it
+        // had. With the default unlimited retries a player dying repeatedly went back to the SAME
+        // oldest snapshot forever -- the retry appeared to do nothing, permanently.
+        {
+            String restSrc2 = Files.readString(Path.of(
+                    "src/main/java/com/yuan/timerewind/YuanTimeRewindRestorer.java"));
+            assert restSrc2.contains("requested < earliest")
+                    : "a retry target must be clamped to the retained history";
+            assert restSrc2.contains("recorder.history().earliestTick()")
+                    : "the clamp must ask the recorder what it actually holds";
+        }
+
         assert rewindEvents.contains("shouldAttemptDeathRewind") : "death retry cap helper missing";
         assert rewindEvents.contains("shouldAttemptDeathRewind(retry")
                 : "death retry cap must be enforced";
