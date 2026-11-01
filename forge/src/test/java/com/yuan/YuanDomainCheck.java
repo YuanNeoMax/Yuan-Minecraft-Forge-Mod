@@ -117,6 +117,65 @@ public final class YuanDomainCheck {
                 : "the view must be reconstructed from the camera's look and up vectors via lookAt";
         assert render.contains("VIEW_PROJECTION.set(RenderSystem.getProjectionMatrix())")
                 : "the projection still comes from RenderSystem; only the view is rebuilt";
+        // ---- THE SHADER'S STRUCTURE, because it only compiles at runtime ------------------
+        //
+        // A GLSL error is not a compile error in this build: the shader is compiled when the game
+        // loads it, and a failure there turns the whole floor into a silent no-op. The build can
+        // still check the three things that break it most often, all of which are cheap here and
+        // expensive to discover in-game.
+        {
+            String body = stripShaderComments(fsh);
+
+            // 1. EVERY DECLARED UNIFORM MUST BE READ. GLSL 150 drops a uniform that is declared but
+            //    never used, and the Java lookup then returns null and the pass quietly skips.
+            java.util.regex.Matcher decls = java.util.regex.Pattern
+                    .compile("uniform\\s+\\w+\\s+(\\w+);")
+                    .matcher(body);
+            java.util.List<String> unread = new java.util.ArrayList<>();
+            while (decls.find()) {
+                String name = decls.group(1);
+                String withoutDecl = body.replaceFirst("uniform\\s+\\w+\\s+" + name + ";", "");
+                java.util.regex.Matcher uses = java.util.regex.Pattern
+                        .compile("\\b" + name + "\\b").matcher(withoutDecl);
+                if (!uses.find()) unread.add(name);
+            }
+            assert unread.isEmpty()
+                    : "these uniforms are declared but never read, so GLSL 150 drops them and the "
+                    + "Java lookup returns null: " + String.join(", ", unread);
+
+            // 2. NO FUNCTION MAY BE CALLED BEFORE IT IS DEFINED. GLSL 150 has no forward declaration,
+            //    so a helper placed below its first use fails to compile -- and the natural place to
+            //    add a helper is right after the code that wanted it.
+            java.util.regex.Matcher defs = java.util.regex.Pattern
+                    .compile("(?m)^\\s*(?:float|vec2|vec3|vec4|void|int)\\s+(\\w+)\\s*\\(")
+                    .matcher(body);
+            java.util.Map<String, Integer> definedAt = new java.util.LinkedHashMap<>();
+            while (defs.find()) definedAt.put(defs.group(1), defs.start());
+            for (java.util.Map.Entry<String, Integer> e : definedAt.entrySet()) {
+                int firstCall = body.indexOf(e.getKey() + "(");
+                assert firstCall < 0 || firstCall >= e.getValue()
+                        : e.getKey() + " is called before it is defined, which GLSL 150 rejects";
+            }
+
+            // 3. BRACES BALANCE. Trivial, and it caught a real fault last time this file was edited.
+            int open = 0;
+            int close = 0;
+            for (char c : body.toCharArray()) {
+                if (c == '{') open++;
+                else if (c == '}') close++;
+            }
+            assert open == close : "unbalanced braces in the domain shader: " + open + " open, "
+                    + close + " close";
+
+            // 4. THE COLOUR TEMPERATURE IS STILL WIRED, because it is the layer easiest to lose in a
+            //    refactor: it is a multiplier on the star contribution, so removing it compiles fine
+            //    and simply reverts the field to flat white.
+            assert body.contains("starTint(")
+                    : "each star must carry its own colour temperature";
+            assert body.contains("starColour")
+                    : "the temperature must actually reach the composited colour";
+        }
+
         assert !fsh.contains("InverseViewProjectionAlt")
                 : "the diagnostic's second candidate uniform must not survive into the real shader";
         assert render.contains("invert()")
@@ -324,6 +383,28 @@ public final class YuanDomainCheck {
      * inside a string would be treated as a comment; no assertion here reads a string that contains
      * one.
      */
+    /** Strips // and /* ... *\/ from a GLSL source, so a mention inside a comment is not a "use". */
+    private static String stripShaderComments(String text) {
+        StringBuilder out = new StringBuilder();
+        int i = 0;
+        int n = text.length();
+        while (i < n) {
+            if (text.startsWith("/*", i)) {
+                int j = text.indexOf("*/", i + 2);
+                i = j < 0 ? n : j + 2;
+                continue;
+            }
+            if (text.startsWith("//", i)) {
+                int j = text.indexOf('\n', i);
+                i = j < 0 ? n : j;
+                continue;
+            }
+            out.append(text.charAt(i));
+            i++;
+        }
+        return out.toString();
+    }
+
     private static String stripComments(String source) {
         StringBuilder out = new StringBuilder(source.length());
         int i = 0;
